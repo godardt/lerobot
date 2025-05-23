@@ -4735,7 +4735,7 @@ packages:
   md5: 0cd1148c68f09027ee0b0f0179f77c30
   depends:
   - __osx >=11.0
-  - libgfortran >=5
+  - libgfortran 5.*
   - libgfortran5 >=13.2.0
   - llvm-openmp >=18.1.8
   constrains:
@@ -6915,7 +6915,7 @@ packages:
   - python >=3.9
   license: ISC
   purls:
-  - pkg:pypi/pexpect?source=compressed-mapping
+  - pkg:pypi/pexpect?source=hash-mapping
   size: 53561
   timestamp: 1733302019362
 - conda: https://conda.anaconda.org/conda-forge/noarch/pickleshare-0.7.5-pyhd8ed1ab_1004.conda
