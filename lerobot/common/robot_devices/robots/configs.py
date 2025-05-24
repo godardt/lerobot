@@ -178,26 +178,15 @@ class AlohaRobotConfig(ManipulatorRobotConfig):
     # on another USB hub or PCIe card.
     cameras: dict[str, CameraConfig] = field(
         default_factory=lambda: {
-            "cam_high": IntelRealSenseCameraConfig(
-                serial_number=128422271347,
+            "wrist": OpenCVCameraConfig(
+                camera_index=5,
                 fps=30,
                 width=640,
                 height=480,
             ),
-            "cam_low": IntelRealSenseCameraConfig(
-                serial_number=130322270656,
-                fps=30,
-                width=640,
-                height=480,
-            ),
-            "cam_left_wrist": IntelRealSenseCameraConfig(
-                serial_number=218622272670,
-                fps=30,
-                width=640,
-                height=480,
-            ),
-            "cam_right_wrist": IntelRealSenseCameraConfig(
-                serial_number=130322272300,
+            "base": OpenCVCameraConfig(
+                # TODO: update camera index
+                camera_index=1,
                 fps=30,
                 width=640,
                 height=480,
@@ -506,7 +495,7 @@ class So100RobotConfig(ManipulatorRobotConfig):
     leader_arms: dict[str, MotorsBusConfig] = field(
         default_factory=lambda: {
             "main": FeetechMotorsBusConfig(
-                port="/dev/tty.usbmodem59700742231",
+                port="/dev/ttyACM0",
                 motors={
                     # name: (index, model)
                     "shoulder_pan": [1, "sts3215"],
@@ -523,7 +512,7 @@ class So100RobotConfig(ManipulatorRobotConfig):
     follower_arms: dict[str, MotorsBusConfig] = field(
         default_factory=lambda: {
             "main": FeetechMotorsBusConfig(
-                port="/dev/tty.usbmodem59700731061",
+                port="/dev/ttyACM1",
                 motors={
                     # name: (index, model)
                     "shoulder_pan": [1, "sts3215"],
@@ -539,17 +528,11 @@ class So100RobotConfig(ManipulatorRobotConfig):
 
     cameras: dict[str, CameraConfig] = field(
         default_factory=lambda: {
-            "laptop": OpenCVCameraConfig(
-                camera_index=0,
-                fps=30,
-                width=640,
-                height=480,
+            "front": OpenCVCameraConfig(
+                camera_index="/dev/video0", fps=30, width=640, height=480, rotation=90
             ),
-            "phone": OpenCVCameraConfig(
-                camera_index=1,
-                fps=30,
-                width=640,
-                height=480,
+            "wrist": OpenCVCameraConfig(
+                camera_index="/dev/video5", fps=30, width=640, height=480, rotation=180
             ),
         }
     )
@@ -612,7 +595,7 @@ class LeKiwiRobotConfig(RobotConfig):
                 camera_index="/dev/video0", fps=30, width=640, height=480, rotation=90
             ),
             "wrist": OpenCVCameraConfig(
-                camera_index="/dev/video2", fps=30, width=640, height=480, rotation=180
+                camera_index="/dev/video5", fps=30, width=640, height=480, rotation=180
             ),
         }
     )
