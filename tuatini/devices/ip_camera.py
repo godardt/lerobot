@@ -28,8 +28,8 @@ def _run_stream(vcam_ip, vcam_port, vcam_local_path):
         raise
 
 
-def start_smartphone_stream(vcam_ip, vcam_port, vcam_local_path):
-    """Start the smartphone video stream in a separate process.
+def _run_in_process(vcam_ip, vcam_port, vcam_local_path):
+    """Start the IP camera video stream in a separate process.
 
     Args:
         vcam_ip (str): IP address of the video stream
@@ -57,3 +57,29 @@ def start_smartphone_stream(vcam_ip, vcam_port, vcam_local_path):
         raise RuntimeError("Failed to start video stream process")
 
     return process
+
+
+def _get_camera_config(camera_config):
+    """Get viewer IP and port from config file."""
+    ip = camera_config["vcam_ip"]
+    port = camera_config["vcam_port"]
+    output_device = camera_config["device"]
+    return ip, port, output_device
+
+
+def start_stream(config):
+    # Start the video stream in a separate process
+    try:
+        vcam_ip, vcam_port, vcam_output_device = _get_camera_config(config)
+        logging.info(f"Connecting to IP camera from {vcam_ip}:{vcam_port} to {vcam_output_device}")
+        stream_process = _run_in_process(vcam_ip, vcam_port, vcam_output_device)
+    except KeyboardInterrupt:
+        logging.info("Shutting down IP camera stream...")
+    except Exception as e:
+        raise e
+    finally:
+        # Clean up the process
+        if stream_process and stream_process.is_alive():
+            stream_process.terminate()
+            stream_process.join()
+    return stream_process
