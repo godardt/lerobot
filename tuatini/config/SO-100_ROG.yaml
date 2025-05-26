@@ -1,0 +1,47 @@
+rerun:
+  viewer_ip: 100.110.81.39 # Macbook air IP
+  viewer_port: 9876
+
+robot:
+  type: so100
+  calibration_dir: ~/.cache/calibration/so100/
+  leader_arms:
+    main:
+      port: /dev/ttyACM0
+      motors:
+        # name: (index, model)
+        shoulder_pan: [1, "sts3215"]
+        shoulder_lift: [2, "sts3215"]
+        elbow_flex: [3, "sts3215"]
+        wrist_flex: [4, "sts3215"]
+        wrist_roll: [5, "sts3215"]
+        gripper: [6, "sts3215"]
+  follower_arms:
+    main:
+      port: /dev/ttyACM1
+      motors:
+        # name: (index, model)
+        shoulder_pan: [1, "sts3215"]
+        shoulder_lift: [2, "sts3215"]
+        elbow_flex: [3, "sts3215"]
+        wrist_flex: [4, "sts3215"]
+        wrist_roll: [5, "sts3215"]
+        gripper: [6, "sts3215"]
+  cameras:
+    front:
+      # On what device the smartphone camera will map to
+      camera_index: /dev/video0
+      # IP address given by DroidCam app on the smartphone
+      vcam_ip: 100.75.155.120
+      vcam_port: 4747
+      fps: 30
+      width: 640
+      height: 480
+      rotation: 90
+    wrist:
+      # Wrist camera
+      camera_index: /dev/video5
+      fps: 30
+      width: 640
+      height: 480
+      rotation: 180

@@ -1,13 +1,13 @@
 import logging
-import multiprocessing
-import time
+import os
 from datetime import datetime
 from pathlib import Path
 
 import click
-import ffmpeg
 import rerun as rr
 import yaml
+
+from tuatini.common.robot import SO100Robot
 
 root_dir = Path(__file__).parent.parent
 
@@ -31,96 +31,47 @@ def init_logging():
     logging.getLogger().addHandler(console_handler)
 
 
-def _run_stream(vcam_ip, vcam_port, vcam_local_path):
-    """Run the FFmpeg stream in a separate process.
+def _init_rerun(viewer_ip, viewer_port, session_name: str = "lerobot_control_loop") -> None:
+    """Initializes the Rerun SDK for visualizing the control loop.
 
     Args:
-        vcam_ip (str): IP address of the video stream
-        vcam_local_path (str): Local path where the video stream will be accessible
-    """
-    try:
-        stream = (
-            ffmpeg.input(f"http://{vcam_ip}:{vcam_port}/video")
-            .filter("scale", 640, 480)
-            .filter("fps", fps=30)
-            .filter("format", "yuyv422")
-            .output(vcam_local_path, f="v4l2")
-            .overwrite_output()
-            .run_async(pipe_stdout=True, pipe_stderr=True)
-        )
-        stream.wait()  # Wait for the stream to complete
-    except ffmpeg.Error as e:
-        logging.error(f"FFmpeg error: {e.stderr.decode() if e.stderr else str(e)}")
-        raise
+        control_config: Configuration determining data display and robot type.
+        session_name: Rerun session name. Defaults to "lerobot_control_loop".
 
-
-def _start_smartphone_stream(vcam_ip, vcam_port, vcam_local_path):
-    """Start the smartphone video stream in a separate process.
-
-    Args:
-        vcam_ip (str): IP address of the video stream
-        vcam_local_path (str): Local path where the video stream will be accessible
-        
-    Returns:
-        multiprocessing.Process: The running process
-        
     Raises:
-        RuntimeError: If the process fails to start
+        ValueError: If viewer IP is missing for non-remote configurations with display enabled.
     """
-    logging.info(f"Video stream accessible at {vcam_local_path} on the system")
+    if viewer_ip and viewer_port:
+        # Configure Rerun flush batch size default to 8KB if not set
+        batch_size = os.getenv("RERUN_FLUSH_NUM_BYTES", "8000")
+        os.environ["RERUN_FLUSH_NUM_BYTES"] = batch_size
 
-    # Create and start the process
-    process = multiprocessing.Process(
-        target=_run_stream,
-        args=(vcam_ip, vcam_port, vcam_local_path),
-        daemon=True,  # Process will be terminated when main program exits
-    )
-    process.start()
-    
-    # Give the process a moment to start and check if it's still alive
-    time.sleep(0.5)
-    if not process.is_alive():
-        raise RuntimeError("Failed to start video stream process")
-
-    return process
+        # Initialize Rerun based on configuration
+        rr.init(session_name)
+        logging.info(f"Connecting to viewer at {viewer_ip}:{viewer_port}")
+        rr.connect_tcp(f"{viewer_ip}:{viewer_port}")
 
 
-def _get_smartphone_config(config_path):
-    """Get viewer IP and port from config file."""
-    with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
-    smartphone_config = config["smartphone_camera"]
-    ip = smartphone_config["vcam_ip"]
-    port = smartphone_config["vcam_port"]
-    output_path = smartphone_config["vcam_output_path"]
-    return ip, port, output_path
+def _teleoperate(robot):
+    while True:
+        robot.teleop_step()
 
 
 @click.command("Straightforward way to teleoperate the SO-100 robot")
-@click.option("--config", type=str, help="Config file for the robot", default=str(root_dir / "config" / "SO-100.yaml"))
+@click.option(
+    "--config", type=str, help="Config file for the robot", default=str(root_dir / "config" / "SO-100_ROG.yaml")
+)
 def main(config):
     init_logging()
-    vcam_ip, vcam_port, vcam_output_path = _get_smartphone_config(config)
-    logging.info(f"Connecting to smartphone camera from {vcam_ip}:{vcam_port} to {vcam_output_path}")
+    with open(config, "r") as f:
+        config = yaml.safe_load(f)
 
-    # Start the video stream in a separate process
-    stream_process = _start_smartphone_stream(vcam_ip, vcam_port, vcam_output_path)
+    robot = SO100Robot(config["robot"])
 
-    # TODO check connection to the wrist cam
-    
+    rerun_config = config.get("rerun")
+    _init_rerun(rerun_config.get("viewer_ip"), rerun_config.get("viewer_port"))
 
-    try:
-        # Your main program logic here
-        while True:  # Keep the main thread alive
-            print("main loop")
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logging.info("Shutting down...")
-    finally:
-        # Clean up the process
-        if stream_process and stream_process.is_alive():
-            stream_process.terminate()
-            stream_process.join()
+    _teleoperate(robot)
 
 
 if __name__ == "__main__":
