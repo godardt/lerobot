@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -53,9 +54,15 @@ def _init_rerun(viewer_ip, viewer_port, session_name: str = "lerobot_control_loo
         rr.connect_tcp(f"{viewer_ip}:{viewer_port}")
 
 
-def _teleoperate(robot):
+def _teleoperate(robot: SO100Robot, record_data=False):
+    if not robot.is_connected:
+        robot.connect()
+
+    timestamp = 0
+    start_episode_t = time.perf_counter()
+
     while True:
-        robot.teleop_step()
+        robot.teleop_step(record_data=record_data)
 
 
 @click.command("Straightforward way to teleoperate the SO-100 robot")

@@ -18,11 +18,7 @@ from typing import Sequence
 
 import draccus
 
-from lerobot.common.robot_devices.cameras.configs import (
-    CameraConfig,
-    IntelRealSenseCameraConfig,
-    OpenCVCameraConfig,
-)
+from lerobot.common.robot_devices.cameras.configs import CameraConfig, IntelRealSenseCameraConfig, OpenCVCameraConfig
 from lerobot.common.robot_devices.motors.configs import (
     DynamixelMotorsBusConfig,
     FeetechMotorsBusConfig,
@@ -528,12 +524,11 @@ class So100RobotConfig(ManipulatorRobotConfig):
 
     cameras: dict[str, CameraConfig] = field(
         default_factory=lambda: {
-            "front": OpenCVCameraConfig(
-                camera_index="/dev/video0", fps=30, width=640, height=480, rotation=90
-            ),
-            "wrist": OpenCVCameraConfig(
-                camera_index="/dev/video5", fps=30, width=640, height=480, rotation=180
-            ),
+            # Smartphone camera, not always available
+            # "front": OpenCVCameraConfig(
+            #     camera_index="/dev/video0", fps=30, width=640, height=480, rotation=90
+            # ),
+            "wrist": OpenCVCameraConfig(camera_index="/dev/video5", fps=30, width=640, height=480, rotation=180),
         }
     )
 
@@ -591,12 +586,8 @@ class LeKiwiRobotConfig(RobotConfig):
 
     cameras: dict[str, CameraConfig] = field(
         default_factory=lambda: {
-            "front": OpenCVCameraConfig(
-                camera_index="/dev/video0", fps=30, width=640, height=480, rotation=90
-            ),
-            "wrist": OpenCVCameraConfig(
-                camera_index="/dev/video5", fps=30, width=640, height=480, rotation=180
-            ),
+            "front": OpenCVCameraConfig(camera_index="/dev/video0", fps=30, width=640, height=480, rotation=90),
+            "wrist": OpenCVCameraConfig(camera_index="/dev/video5", fps=30, width=640, height=480, rotation=180),
         }
     )
 

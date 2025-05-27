@@ -12,6 +12,7 @@ robot:
     main:
       device: /dev/ttyACM1
   cameras:
+    # This camera is a Droidcam app running on the smartphone
     front:
       # On what device the smartphone camera will map to
       device: /dev/video0

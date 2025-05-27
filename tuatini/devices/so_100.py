@@ -1,4 +1,7 @@
+import time
 from pathlib import Path
+
+import torch
 
 from tuatini.motors.feetch import FeetechMotorsBus
 
@@ -33,5 +36,26 @@ class SO100Robot:
     def make_cameras_from_configs(self, config):
         pass
 
-    def teleop_step(self, record_data=False):
-        pass
+    @property
+    def is_connected(self):
+        return (
+            all(arm.is_connected for arm in self.leader_arms.values())
+            and all(arm.is_connected for arm in self.follower_arms.values())
+            and all(camera.is_connected for camera in self.cameras)
+        )
+
+    def connect(self):
+        for arm_name, arm in self.leader_arms.items():
+            arm.connect()
+        for arm_name, arm in self.follower_arms.items():
+            arm.connect()
+        for camera in self.cameras:
+            camera.connect()
+
+    def teleop_step(self, record_data=False) -> None | tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+        leader_pos = {}
+        for name in self.leader_arms:
+            before_lread_t = time.perf_counter()
+            leader_pos[name] = self.leader_arms[name].read("Present_Position")
+            leader_pos[name] = torch.from_numpy(leader_pos[name])
+            self.logs[f"read_leader_{name}_pos_dt_s"] = time.perf_counter() - before_lread_t
