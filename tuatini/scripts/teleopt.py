@@ -8,7 +8,6 @@ import click
 import rerun as rr
 import yaml
 
-from tuatini.devices.ip_camera import start_stream
 from tuatini.devices.so_100 import SO100Robot
 
 root_dir = Path(__file__).parent.parent
@@ -74,12 +73,8 @@ def main(config):
     with open(config, "r") as f:
         config = yaml.safe_load(f)
 
-    try:
-        start_stream(config["cameras"]["front"])
-    except Exception as e:
-        logging.error(f"Failed to start IP camera stream, ignoring... Exception: {e}")
-
     robot = SO100Robot(config["robot"])
+    robot.connect()
 
     rerun_config = config.get("rerun")
     _init_rerun(rerun_config.get("viewer_ip"), rerun_config.get("viewer_port"))

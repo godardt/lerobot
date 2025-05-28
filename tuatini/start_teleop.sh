@@ -24,9 +24,7 @@ export DISPLAY=
 pixi run python lerobot/scripts/control_robot.py \
 	--robot.type=so100 \
 	--control.type=teleoperate \
-	--control.display_data=true \
-	--remote_robot.viewer_ip=100.110.81.39 \
-	--remote_robot.viewer_port=9876
+	--control.display_data=true
 
 # Supposedly use the following on the client `rerun connect rerun+http://100.101.174.46:9876`
 

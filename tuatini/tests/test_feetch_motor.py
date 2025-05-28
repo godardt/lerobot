@@ -35,4 +35,6 @@ def test_feetch_motor_buses_write():
     current_position = motors_bus.read("Present_Position")
     few_steps = 30
     motors_bus.write("Goal_Position", current_position + few_steps)
+    new_position = motors_bus.read("Goal_Position")
+    assert all(new_position == current_position + few_steps)
     motors_bus.disconnect()

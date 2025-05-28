@@ -129,11 +129,14 @@ class FeetechMotorsBus:
     """
 
     def __init__(self, motors, port):
+        # TODO if ROS was used, we would have a node that would handle the motors bus
+        # and we wouldn't need to pass the port here
         self.motors = motors
         self.port = port
 
         self.port_handler = None
         self.packet_handler = None
+        # TODO each Reader and Writer should be a class/struct
         self.group_readers = {}
         self.group_writers = {}
         self.logs = {}
