@@ -34,7 +34,7 @@ HALF_TURN_DEGREE = 180
 # See this link for STS3215 Memory Table:
 # https://docs.google.com/spreadsheets/d/1GVs7W1VS1PqdhA1nW-abeyAHhTUxKUdR/edit?usp=sharing&ouid=116566590112741600240&rtpof=true&sd=true
 # data_name: (address, size_byte)
-SCS_SERIES_CONTROL_TABLE = {
+STS3215_CONTROL_TABLE = {
     "Model": (3, 2),
     "ID": (5, 1),
     "Baud_Rate": (6, 1),
@@ -84,6 +84,8 @@ SCS_SERIES_CONTROL_TABLE = {
     "Maximum_Acceleration": (85, 2),
 }
 
+MODEL_RESOLUTION = 4096
+
 CALIBRATION_REQUIRED = ["Goal_Position", "Present_Position"]
 CONVERT_UINT32_TO_INT32_REQUIRED = ["Goal_Position", "Present_Position"]
 
@@ -120,6 +122,11 @@ class CalibrationMode(enum.Enum):
     LINEAR = 1
 
 
+class FeetechTorqueMode(enum.Enum):
+    ENABLED = 1
+    DISABLED = 0
+
+
 class FeetechMotorsBus:
     """
     The FeetechMotorsBus class allows to efficiently read and write to the attached motors. It relies on
@@ -136,7 +143,7 @@ class FeetechMotorsBus:
 
         self.port_handler = None
         self.packet_handler = None
-        # TODO each Reader and Writer should be a class/struct
+        # TODO each Reader and Writer should be a class/struct, one motor should be represented by its own STS3215Servo class
         self.group_readers = {}
         self.group_writers = {}
         self.logs = {}
@@ -285,8 +292,6 @@ class FeetechMotorsBus:
             if CalibrationMode[calib_mode] == CalibrationMode.DEGREE:
                 drive_mode = self.calibration["drive_mode"][calib_idx]
                 homing_offset = self.calibration["homing_offset"][calib_idx]
-                _, model = self.motors[name]
-                resolution = self.model_resolution[model]
 
                 # Update direction of rotation of the motor to match between leader and follower.
                 # In fact, the motor of the leader for a given joint can be assembled in an
@@ -300,7 +305,7 @@ class FeetechMotorsBus:
 
                 # Convert from range ]-resolution, resolution[ to
                 # universal float32 centered degree range ]-180, 180[
-                values[i] = values[i] / (resolution // 2) * HALF_TURN_DEGREE
+                values[i] = values[i] / (MODEL_RESOLUTION // 2) * HALF_TURN_DEGREE
 
                 if (values[i] < LOWER_BOUND_DEGREE) or (values[i] > UPPER_BOUND_DEGREE):
                     raise JointOutOfRangeError(
@@ -482,7 +487,7 @@ class FeetechMotorsBus:
         if isinstance(motor_names, str):
             motor_names = [motor_names]
 
-        addr, bytes = SCS_SERIES_CONTROL_TABLE[data_name]
+        addr, bytes = STS3215_CONTROL_TABLE[data_name]
         group_key = self.get_group_sync_key(data_name, motor_names)
 
         if data_name not in self.group_readers:
@@ -563,7 +568,7 @@ class FeetechMotorsBus:
 
         values = values.tolist()
 
-        addr, bytes = SCS_SERIES_CONTROL_TABLE[data_name]
+        addr, bytes = STS3215_CONTROL_TABLE[data_name]
         group_key = self.get_group_sync_key(data_name, motor_names)
 
         init_group = data_name not in self.group_readers

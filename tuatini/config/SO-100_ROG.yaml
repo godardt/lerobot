@@ -4,7 +4,8 @@ rerun:
 
 robot:
   type: so100
-  calibration_dir: ~/.cache/calibration/so100/
+  calibration_dir: $PROJECT_DIR/.cache/calibration/so100/
+  # TODO: Replace device discovery with udev rules
   leader_arms:
     main:
       device: /dev/ttyACM0
