@@ -48,14 +48,14 @@ class SO100Robot:
             fps = cam_config["fps"]
             width = cam_config["width"]
             height = cam_config["height"]
-            device = cam_config["device"]
             rotation = cam_config["rotation"]
 
             if cam_config["type"] == "ip_camera":
                 ip = cam_config["vcam_ip"]
                 port = cam_config["vcam_port"]
-                cameras[cam_name] = IPCamera(device, ip, port, fps, width, height, rotation)
+                cameras[cam_name] = IPCamera(ip, port, fps, width, height, rotation)
             elif cam_config["type"] == "opencv":
+                device = cam_config["device"]
                 cameras[cam_name] = OpenCVCamera(device, fps, width, height, rotation)
 
         return cameras

@@ -16,8 +16,6 @@ robot:
     # This camera is a Droidcam app running on the smartphone
     front:
       type: ip_camera
-      # On what device the smartphone camera will map to
-      device: /dev/video0
       # IP address given by DroidCam app on the smartphone
       vcam_ip: 100.75.155.120
       vcam_port: 4747

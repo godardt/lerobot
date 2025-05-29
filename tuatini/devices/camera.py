@@ -1,6 +1,8 @@
 import logging
 import math
 import multiprocessing
+import os
+import subprocess
 import time
 
 import cv2
@@ -10,15 +12,17 @@ import requests
 from requests.exceptions import RequestException
 
 from tuatini.utils.exceptions import RobotDeviceAlreadyConnectedError, RobotDeviceNotConnectedError
+from tuatini.utils.time import capture_timestamp_utc
 
 
 class OpenCVCamera:
-    def __init__(self, device, capture_fps, capture_width, capture_height, rotation):
+    def __init__(self, device, capture_fps, capture_width, capture_height, rotation, color_mode="rgb"):
         self.device = device
         self.capture_fps = capture_fps
         self.capture_width = capture_width
         self.capture_height = capture_height
         self.rotation = rotation
+        self.color_mode = color_mode
 
         self.camera = None
         self.is_connected = False
@@ -141,18 +145,76 @@ class OpenCVCamera:
 
 
 class IPCamera:
-    def __init__(self, output_device, ip, port, capture_fps, capture_width, capture_height, rotation):
+    def __init__(self, ip, port, capture_fps, capture_width, capture_height, rotation):
         self.ip = ip
         self.port = port
-        self.output_device = output_device
         self.capture_fps = capture_fps
         self.capture_width = capture_width
         self.capture_height = capture_height
         self.rotation = rotation
         self.stream_process = None
         self.camera = None
+        self.is_connected = False
+
+        self._error_queue = multiprocessing.Queue()
+
+    @staticmethod
+    def find_available_v4l2loopback_device(start_index=0, max_devices_to_check=16):
+        """
+        Finds an available v4l2loopback device.
+
+        Args:
+            start_index (int): The video index to start checking from (e.g., 0 for /dev/video0).
+            max_devices_to_check (int): How many /dev/videoX devices to check.
+
+        Returns:
+            str: The path to an available v4l2loopback device (e.g., "/dev/video10"),
+                or None if no suitable device is found.
+        """
+        logging.info("Searching for an available v4l2loopback device...")
+        # Prefer devices explicitly created by v4l2loopback with higher numbers
+        # but check all for robustness.
+        # We can iterate through existing /dev/video* devices.
+
+        for i in range(start_index, start_index + max_devices_to_check):
+            device_path = f"/dev/video{i}"
+            if not os.path.exists(device_path):
+                continue
+
+            try:
+                # Check if it's a v4l2loopback device
+                process = subprocess.run(
+                    ["v4l2-ctl", "-D", "-d", device_path], capture_output=True, text=True, check=True, timeout=2
+                )
+                output = process.stdout.lower()
+                # Look for "v4l2 loopback" in driver or card type
+                if "v4l2 loopback" in output:
+                    logging.info(f"Found v4l2loopback device: {device_path}")
+                    # Basic check: Does it already list formats indicating it's actively being written to?
+                    # This is a heuristic. A device with exclusive_caps=1 will typically not list
+                    # many formats until something writes to it.
+                    # If it *does* list many, it might be in use.
+                    # For now, we'll just return the first v4l2loopback device found.
+                    # A more robust check would be to try and use it and handle "device busy".
+                    return device_path
+                else:
+                    logging.debug(f"{device_path} is not a v4l2loopback device. Output: {output.strip()}")
+
+            except subprocess.CalledProcessError as e:
+                logging.warning(f"Error checking {device_path}: {e.stderr}")
+            except subprocess.TimeoutExpired:
+                logging.warning(f"Timeout checking {device_path}")
+            except FileNotFoundError:
+                logging.error("v4l2-ctl command not found. Please ensure it is installed.")
+                return None  # Cannot check without v4l2-ctl
+
+        logging.warning("No available v4l2loopback device found.")
+        return None
 
     def connect(self):
+        if self.is_connected:
+            raise RobotDeviceAlreadyConnectedError(f"IPCamera({self.ip}:{self.port}) is already connected.")
+
         # Start the video stream in a separate process
         try:
             # Check if IP camera is accessible
@@ -164,61 +226,106 @@ class IPCamera:
             except RequestException as e:
                 raise RuntimeError(f"Failed to connect to IP camera at {camera_url}: {str(e)}")
 
-            logging.info(f"Connecting to IP camera from {self.ip}:{self.port} to {self.output_device}")
+            output_device = IPCamera.find_available_v4l2loopback_device()
+            logging.info(f"Connecting to IP camera from {self.ip}:{self.port} to {output_device}")
             # Create and start the process
             self.stream_process = multiprocessing.Process(
                 target=self._run_stream,
-                daemon=True,  # Process will be terminated when main program exits
+                args=(self._error_queue, output_device),  # Pass the queue to the target method
+                daemon=True,
             )
             self.stream_process.start()
 
             # Give the process a moment to start and check if it's still alive
             time.sleep(0.5)
+            if not self._error_queue.empty():
+                err_from_subprocess = self._error_queue.get_nowait()
+                # err_from_subprocess is now the string we put, or the exception object
+                raise RuntimeError(f"FFmpeg subprocess failed: {err_from_subprocess}") from (
+                    err_from_subprocess if isinstance(err_from_subprocess, Exception) else None
+                )
+
             if not self.stream_process.is_alive():
                 raise RuntimeError("Failed to start video stream process")
-            logging.info(f"Video stream accessible at {self.output_device} on the system")
 
             # Now that a stream is running on the output device, we can connect OpenCV to it
             self.camera = OpenCVCamera(
-                self.output_device, self.capture_fps, self.capture_width, self.capture_height, self.rotation
+                output_device, self.capture_fps, self.capture_width, self.capture_height, self.rotation
             )
             self.camera.connect()
+            self.is_connected = True
+            logging.info(f"Video stream accessible at {self.output_device} on the system")
         except KeyboardInterrupt:
             logging.info("Shutting down IP camera stream...")
+            raise
         except Exception as e:
-            raise e
-        finally:
-            # Clean up the process
+            logging.error(f"Error during IPCamera connect: {e}")
+            # Clean up the process if connection fails
             if self.stream_process and self.stream_process.is_alive():
+                logging.info("Terminating ffmpeg stream process due to error.")
                 self.stream_process.terminate()
-                self.stream_process.join()
+                self.stream_process.join(timeout=1.0)  # Add timeout to join
+            elif self.stream_process:  # Process already exited
+                self.stream_process.join(timeout=1.0)  # Ensure it's cleaned up
+            self.stream_process = None  # Clear the process attribute
+            raise
 
     def disconnect(self):
+        if not self.is_connected:
+            return
+
+        if self.camera is not None:
+            self.camera.disconnect()
+            self.camera = None
+
         if self.stream_process and self.stream_process.is_alive():
             self.stream_process.terminate()
             self.stream_process.join()
+            self.stream_process = None
 
-    def read(self):
-        return self.camera.read()
+        self.is_connected = False
 
-    def _run_stream(self):
-        """Run the FFmpeg stream in a separate process.
+    def read(self, temporary_color_mode: str | None = None):
+        if not self.is_connected:
+            raise RobotDeviceNotConnectedError(
+                f"IPCamera({self.ip}:{self.port}) is not connected. Try running `camera.connect()` first."
+            )
+        return self.camera.read(temporary_color_mode)
 
-        Args:
-            vcam_ip (str): IP address of the video stream
-            vcam_local_path (str): Local path where the video stream will be accessible
-        """
+    def _run_stream(self, error_queue: multiprocessing.Queue, actual_output_device: str):  # Pass queue to target
+        """Run the FFmpeg stream in a separate process."""
         try:
             stream = (
                 ffmpeg.input(f"http://{self.ip}:{self.port}/video")
                 .filter("scale", self.capture_width, self.capture_height)
                 .filter("fps", fps=self.capture_fps)
-                .filter("format", "yuyv422")
-                .output(self.output_device, f="v4l2")
+                .filter("format", "yuyv422")  # This might be the problematic part for v4l2loopback
+                .output(actual_output_device, f="v4l2")
                 .overwrite_output()
                 .run_async(pipe_stdout=True, pipe_stderr=True)
             )
-            stream.wait()  # Wait for the stream to complete
+            # This wait() will block until ffmpeg finishes or errors.
+            # If it errors, ffmpeg.Error will be raised.
+            _, stderr = stream.wait()  # Capture stdout and stderr
+
+            # If ffmpeg completes but had non-fatal errors in stderr,
+            # or if it exited with a non-zero code not caught by ffmpeg.Error
+            if stream.process.returncode != 0:
+                # Construct an error message or a custom exception
+                err_msg = f"FFmpeg process exited with code {stream.process.returncode}."
+                if stderr:
+                    err_msg += f" Stderr: {stderr.decode(errors='ignore')}"
+                error_queue.put(RuntimeError(err_msg))  # Put a generic error if not ffmpeg.Error
+                return  # Terminate process
+
         except ffmpeg.Error as e:
-            logging.error(f"FFmpeg error: {e.stderr.decode() if e.stderr else str(e)}")
-            raise
+            # This is where ffmpeg-python catches explicit ffmpeg errors
+            errMsg = f"FFmpeg error in subprocess: {e.stderr.decode(errors='ignore') if e.stderr else str(e)}"
+            logging.error(errMsg)
+            error_queue.put(RuntimeError(errMsg))  # Put the detailed error message or the exception itself
+            # No 'raise' here, allow the process to terminate naturally after putting error in queue
+        except Exception as e:
+            # Catch any other unexpected errors in the subprocess
+            errMsg = f"Unexpected error in _run_stream: {str(e)}"
+            logging.error(errMsg)
+            error_queue.put(RuntimeError(errMsg))
