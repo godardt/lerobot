@@ -318,20 +318,7 @@ class IPCamera:
             except subprocess.CalledProcessError as e:
                 logging.error(f"Failed to reload v4l2loopback module: {e}")
                 return False
-
-            # 3. Verify the device is now available
-            try:
-                # Try to open the device with OpenCV to verify it's free
-                cap = cv2.VideoCapture(device_path, cv2.CAP_V4L2)
-                if cap.isOpened():
-                    cap.release()
-                    logging.info(f"Successfully freed v4l2loopback device: {device_path}")
-                    return True
-            except Exception as e:
-                logging.warning(f"Error verifying device {device_path} is free: {e}")
-
-            logging.warning(f"Could not fully free v4l2loopback device: {device_path}")
-            return False
+            return True
 
         except subprocess.CalledProcessError as e:
             logging.error(f"Error freeing device {device_path}: {e.stderr.strip() if e.stderr else e}")
@@ -404,7 +391,6 @@ class IPCamera:
             logging.warning(
                 f"Could not free v4l2loopback device {self.output_device_path}, but will attempt to use it anyway"
             )
-
         logging.info(f"Streaming from {video_stream_url} to {self.output_device_path}")
 
         # Create and start the ffmpeg stream process
@@ -416,7 +402,7 @@ class IPCamera:
         self.stream_process.start()
 
         # Wait a bit for ffmpeg to start and check for immediate errors
-        time.sleep(1.0)  # Give ffmpeg time to initialize or fail
+        time.sleep(5.0)  # Give ffmpeg time to initialize or fail
         if not self._error_queue.empty():
             err_from_subprocess = self._error_queue.get_nowait()
             self._cleanup_ffmpeg_process()  # Ensure ffmpeg is stopped
