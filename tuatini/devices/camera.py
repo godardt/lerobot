@@ -72,7 +72,7 @@ class OpenCVCamera:
             if tmp_camera is not None:
                 tmp_camera.release()
             del tmp_camera
-            time.sleep(0.1)  # Give a very short time for the device to settle after release
+            time.sleep(0.5)  # Give a very short time for the device to settle after release
 
         # Main camera connection
         self.camera = cv2.VideoCapture(self.camera_index, backend)
@@ -164,7 +164,7 @@ class OpenCVCamera:
         if not ret or color_image is None:
             # Attempt a few retries before failing hard, cameras can glitch
             for attempt in range(3):
-                time.sleep(0.05)  # Small delay
+                time.sleep(0.5)  # Small delay
                 logging.warning(f"Retrying frame read for {self.device_path}, attempt {attempt + 1}")
                 ret, color_image = self.camera.read()
                 if ret and color_image is not None:
@@ -189,23 +189,16 @@ class OpenCVCamera:
         # Check against actual capture_height/width before rotation
         # Note: self.capture_height/width are updated to actual values in connect()
         if h != self.capture_height or w != self.capture_width:
-            # This check might be too strict if the camera changes resolution dynamically for some reason
-            # or if the get/set properties reported slightly different values than actual frames.
             logging.warning(
                 f"Captured image dimensions ({h}x{w}) differ from expected ({self.capture_height}x{self.capture_width}) for {self.device_path}."
             )
-            # To be less strict, you might allow small differences or only log this.
-            # For now, keeping it as an error.
-            # raise OSError(
-            #     f"Can't capture color image with expected height and width ({self.capture_height} x {self.capture_width}). ({h} x {w}) returned instead."
-            # )
 
         if self.rotation_code is not None:
             color_image = cv2.rotate(color_image, self.rotation_code)
 
         self.logs["delta_timestamp_s"] = time.perf_counter() - start_time
         self.logs["timestamp_utc"] = capture_timestamp_utc()
-        # self.color_image = color_image # Storing last frame might not be needed unless accessed elsewhere
+        self.color_image = color_image
 
         return color_image
 
@@ -258,15 +251,7 @@ class IPCamera:
                 output = process.stdout.lower()
                 if "v4l2 loopback" in output:
                     logging.info(f"Found v4l2loopback device: {device_path}")
-                    # Further check: attempt to open it exclusively for a moment to see if it's 'busy'
-                    # This is a more robust check but can be slow or problematic itself.
-                    # For now, we assume if check_camera_accessible passes later, it's fine.
-                    # if IPCamera.check_camera_accessible(device_path, timeout_s=0.5): # Quick check
-                    #    logging.info(f"v4l2loopback device {device_path} seems available.")
-                    #    return device_path
-                    # else:
-                    #    logging.info(f"v4l2loopback device {device_path} is busy or unusable.")
-                    return device_path  # Return first one found for now
+                    return device_path
                 else:
                     logging.debug(f"{device_path} is not a v4l2loopback device. Output: {output.strip()}")
             except subprocess.CalledProcessError as e:
@@ -278,6 +263,85 @@ class IPCamera:
                 return None
         logging.warning("No available v4l2loopback device found.")
         return None
+
+    @staticmethod
+    def free_v4l2loopback_device(device_path: str) -> bool:
+        """
+        FIXME: This is a hack to free the device using the root user. It is not a good idea to use it in production.
+        Attempts to free a v4l2loopback device by completely unloading and reloading the module.
+        This is the only way I found to remove it from a "stuck" state.
+
+        Args:
+            device_path (str): The path to the v4l2loopback device (e.g., "/dev/video10")
+
+        Returns:
+            bool: True if the device was successfully freed, False otherwise
+        """
+        if not os.path.exists(device_path):
+            logging.warning(f"Device {device_path} does not exist")
+            return False
+
+        try:
+            # First check if it's actually a v4l2loopback device
+            process = subprocess.run(
+                ["v4l2-ctl", "-D", "-d", device_path], capture_output=True, text=True, check=True, timeout=2
+            )
+            if "v4l2 loopback" not in process.stdout.lower():
+                logging.warning(f"{device_path} is not a v4l2loopback device")
+                return False
+
+            logging.info(f"Attempting to free v4l2loopback device: {device_path}")
+
+            # 1. Try to unload the v4l2loopback module
+            try:
+                subprocess.run(["sudo", "rmmod", "v4l2loopback"], check=True, timeout=5)
+                logging.info("Successfully unloaded v4l2loopback module")
+            except subprocess.CalledProcessError as e:
+                logging.warning(f"Failed to unload v4l2loopback module: {e}")
+                # Continue anyway as the module might not be loaded
+
+            # 2. Reload the module with specific parameters
+            try:
+                subprocess.run(
+                    [
+                        "sudo",
+                        "modprobe",
+                        "v4l2loopback",
+                        "video_nr=0",
+                        'card_label="IPCamLoopbackDev0"',
+                        "exclusive_caps=1",
+                    ],
+                    check=True,
+                    timeout=5,
+                )
+                logging.info("Successfully reloaded v4l2loopback module with specified parameters")
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Failed to reload v4l2loopback module: {e}")
+                return False
+
+            # 3. Verify the device is now available
+            try:
+                # Try to open the device with OpenCV to verify it's free
+                cap = cv2.VideoCapture(device_path, cv2.CAP_V4L2)
+                if cap.isOpened():
+                    cap.release()
+                    logging.info(f"Successfully freed v4l2loopback device: {device_path}")
+                    return True
+            except Exception as e:
+                logging.warning(f"Error verifying device {device_path} is free: {e}")
+
+            logging.warning(f"Could not fully free v4l2loopback device: {device_path}")
+            return False
+
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Error freeing device {device_path}: {e.stderr.strip() if e.stderr else e}")
+            return False
+        except subprocess.TimeoutExpired:
+            logging.error(f"Timeout while trying to free device {device_path}")
+            return False
+        except Exception as e:
+            logging.error(f"Unexpected error while freeing device {device_path}: {e}")
+            return False
 
     @staticmethod
     def _check_camera_worker(device_path, result_queue, timeout_s):
@@ -315,31 +379,6 @@ class IPCamera:
             if result_queue.empty():  # Ensure something is put if an unhandled exit
                 result_queue.put(False)
 
-    @staticmethod
-    def check_camera_accessible(device_path, timeout_s=2.0):
-        """Checks if a v4l2 device is accessible using OpenCV, with a timeout for the check process."""
-        # This check is primarily for the v4l2loopback device after ffmpeg starts.
-        # The cv2.VideoCapture open can hang.
-        q = multiprocessing.Queue()
-        p = multiprocessing.Process(target=IPCamera._check_camera_worker, args=(device_path, q, timeout_s))
-        p.daemon = True  # Ensure it doesn't block exit
-        p.start()
-        p.join(timeout=timeout_s + 0.5)  # Give a bit more than internal timeout
-
-        if p.is_alive():
-            logging.warning(f"check_camera_accessible for {device_path} timed out. Terminating worker.")
-            p.terminate()
-            p.join(0.5)
-            if p.is_alive():
-                p.kill()
-                p.join()
-            return False
-        try:
-            return q.get_nowait()
-        except multiprocessing.queues.Empty:  # pylint: disable=no-member
-            logging.error(f"check_camera_accessible for {device_path}: Worker finished but no result in queue.")
-            return False
-
     def connect(self):
         if self.is_connected:
             raise RobotDeviceAlreadyConnectedError(f"IPCamera({self.ip}:{self.port}) is already connected.")
@@ -355,9 +394,17 @@ class IPCamera:
         except RequestException as e:
             raise RuntimeError(f"Failed to connect to IP camera endpoint at {camera_url}: {str(e)}")
 
+        # Find and free a v4l2loopback device
         self.output_device_path = IPCamera.find_available_v4l2loopback_device()
         if not self.output_device_path:
             raise RuntimeError("No v4l2loopback device found or available for IPCamera.")
+
+        # Try to free the device before using it
+        if not IPCamera.free_v4l2loopback_device(self.output_device_path):
+            logging.warning(
+                f"Could not free v4l2loopback device {self.output_device_path}, but will attempt to use it anyway"
+            )
+
         logging.info(f"Streaming from {video_stream_url} to {self.output_device_path}")
 
         # Create and start the ffmpeg stream process
@@ -382,16 +429,6 @@ class IPCamera:
             if not self._error_queue.empty():
                 err_msg = self._error_queue.get_nowait()
             raise RuntimeError(f"FFmpeg process died unexpectedly shortly after start. Error: {err_msg}")
-
-        # Check if the output v4l2loopback device is now accessible
-        logging.info(f"Checking accessibility of loopback device {self.output_device_path}...")
-        # Increased timeout for check_camera_accessible as ffmpeg might take a moment to feed frames
-        if not IPCamera.check_camera_accessible(self.output_device_path, timeout_s=5.0):
-            self._cleanup_ffmpeg_process()
-            err_msg = f"Loopback device {self.output_device_path} not accessible after starting ffmpeg."
-            if not self._error_queue.empty():  # Check if ffmpeg reported an error during this time
-                err_msg += f" FFmpeg error: {self._error_queue.get_nowait()}"
-            raise RuntimeError(err_msg)
 
         # Now connect OpenCVCamera to the loopback device
         try:
