@@ -2,10 +2,8 @@ import logging
 
 from termcolor import colored
 
-from tuatini.devices.so_100 import SO100Robot
 
-
-def log_control_info(robot: SO100Robot, dt_s, episode_index=None, frame_index=None, fps=None):
+def log_control_info(dt_s, episode_index=None, frame_index=None, fps=None):
     log_items = []
     if episode_index is not None:
         log_items.append(f"ep:{episode_index}")

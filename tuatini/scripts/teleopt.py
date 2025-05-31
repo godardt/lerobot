@@ -83,7 +83,7 @@ def _teleoperate(
             dataset.add_frame(frame)
 
         dt_s = time.perf_counter() - start_loop_t
-        log_control_info(robot, dt_s, fps=fps)
+        log_control_info(dt_s, fps=fps)
 
         timestamp = time.perf_counter() - start_episode_t
 
