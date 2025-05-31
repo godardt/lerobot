@@ -8,7 +8,9 @@ import click
 import rerun as rr
 import yaml
 
+from tuatini.datasets.lerobot import LeRobotDatasetMetadata
 from tuatini.devices.so_100 import SO100Robot
+from tuatini.utils.control import log_control_info
 
 root_dir = Path(__file__).parent.parent
 
@@ -53,15 +55,37 @@ def _init_rerun(viewer_ip, viewer_port, session_name: str = "lerobot_control_loo
         rr.connect_tcp(f"{viewer_ip}:{viewer_port}")
 
 
-def _teleoperate(robot: SO100Robot, record_data=False):
+# TODO: teleoperate and record_dataset are comingled in this function,
+# record_dataset should be a callback to teleoperate
+def _teleoperate(
+    robot: SO100Robot,
+    record_data=False,
+    control_time_s=float("inf"),
+    dataset: LeRobotDatasetMetadata = None,
+    task_name: None | str = None,
+):
     if not robot.is_connected:
         robot.connect()
 
     timestamp = 0
     start_episode_t = time.perf_counter()
 
-    while True:
-        robot.teleop_step(record_data=record_data)
+    # TODO: Those fps originally come from the control argument, not the cameras.
+    # Probably represent the fps rate of the recording?
+    fps = 30
+
+    while timestamp < control_time_s:
+        start_loop_t = time.perf_counter()
+
+        observation, action = robot.teleop_step(record_data=record_data)
+        if dataset is not None:
+            frame = {**observation, **action, "task": task_name}
+            dataset.add_frame(frame)
+
+        dt_s = time.perf_counter() - start_loop_t
+        log_control_info(robot, dt_s, fps=fps)
+
+        timestamp = time.perf_counter() - start_episode_t
 
 
 @click.command("Straightforward way to teleoperate the SO-100 robot")
@@ -80,7 +104,7 @@ def main(config):
     # TODO: Add rerun config
     # _init_rerun(rerun_config.get("viewer_ip"), rerun_config.get("viewer_port"))
 
-    _teleoperate(robot)
+    _teleoperate(robot, record_data=True)
     print("Shutting down...")
 
 

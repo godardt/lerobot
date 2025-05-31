@@ -152,13 +152,20 @@ class SO100Robot:
             self.leader_arms[name].read("Present_Position")
 
         # Connect the cameras
+        unavailable_cameras = []
         for name in self.cameras:
             try:
                 self.cameras[name].connect()
             except Exception as e:
                 print(f"Failed to connect camera {name}: {e}")
+                unavailable_cameras.append(name)
                 continue
 
+        # Remove the camera from the list of cameras
+        for name in unavailable_cameras:
+            del self.cameras[name]
+
+        logging.info(f"Connected {len(self.cameras)} cameras: {list(self.cameras.keys())}")
         self.is_connected = True
 
     def disconnect(self):
@@ -227,3 +234,44 @@ class SO100Robot:
         # Early exit when recording data is not requested
         if not record_data:
             return
+
+        # TODO: Add velocity and other info
+        # Read follower position
+        follower_pos = {}
+        for name in self.follower_arms:
+            before_fread_t = time.perf_counter()
+            follower_pos[name] = self.follower_arms[name].read("Present_Position")
+            follower_pos[name] = torch.from_numpy(follower_pos[name])
+            self.logs[f"read_follower_{name}_pos_dt_s"] = time.perf_counter() - before_fread_t
+
+        # Create state by concatenating follower current position
+        state = []
+        for name in self.follower_arms:
+            if name in follower_pos:
+                state.append(follower_pos[name])
+        state = torch.cat(state)
+
+        # Create action by concatenating follower goal position
+        action = []
+        for name in self.follower_arms:
+            if name in follower_goal_pos:
+                action.append(follower_goal_pos[name])
+        action = torch.cat(action)
+
+        # Capture images from cameras
+        images = {}
+        for name in self.cameras:
+            before_camread_t = time.perf_counter()
+            images[name] = self.cameras[name].async_read()
+            images[name] = torch.from_numpy(images[name])
+            self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
+            self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
+
+        # Populate output dictionaries
+        obs_dict, action_dict = {}, {}
+        obs_dict["observation.state"] = state
+        action_dict["action"] = action
+        for name in self.cameras:
+            obs_dict[f"observation.images.{name}"] = images[name]
+
+        return obs_dict, action_dict

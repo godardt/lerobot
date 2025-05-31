@@ -3,7 +3,9 @@ import math
 import multiprocessing
 import os
 import subprocess
+import threading
 import time
+from threading import Thread
 
 import cv2
 import ffmpeg
@@ -33,6 +35,9 @@ class OpenCVCamera:
 
         self.camera: cv2.VideoCapture | None = None
         self.is_connected = False
+        self.stop_event = None
+        self.color_image = None
+        self.thread = None
         self.logs = {}  # Initialize logs
 
         if rotation == -90:
@@ -201,6 +206,43 @@ class OpenCVCamera:
         self.color_image = color_image
 
         return color_image
+
+    def read_loop(self):
+        while not self.stop_event.is_set():
+            try:
+                self.color_image = self.read()
+            except Exception as e:
+                print(f"Error reading in thread: {e}")
+                # Add a small sleep to avoid tight loop on continuous error
+                time.sleep(0.1)
+
+    def async_read(self):
+        if not self.is_connected:
+            raise RobotDeviceNotConnectedError(
+                f"OpenCVCamera({self.camera_index}) is not connected. Try running `camera.connect()` first."
+            )
+
+        if self.thread is None:
+            self.stop_event = threading.Event()
+            self.thread = Thread(target=self.read_loop, args=())
+            self.thread.daemon = True
+            self.thread.start()
+
+        num_tries = 0
+        while self.color_image is None:  # Wait for self.color_image to be populated by read_loop
+            # Avoid division by zero if fps is 0 or None
+            time.sleep(1 / self.capture_fps if self.capture_fps > 0 else 0.01)
+            num_tries += 1
+            if self.capture_fps > 0 and num_tries > self.capture_fps * 2:  # Max 2 seconds worth of frames
+                raise TimeoutError(
+                    f"OpenCVCamera({self.camera_index}): Timed out waiting for async_read() to provide the first frame."
+                )
+            elif self.capture_fps <= 0 and num_tries > 200:  # Fallback for fps <= 0, approx 2 seconds if sleep is 0.01
+                raise TimeoutError(
+                    f"OpenCVCamera({self.camera_index}): Timed out waiting for async_read() (fps={self.capture_fps})."
+                )
+
+        return self.color_image
 
     def __enter__(self):
         self.connect()
@@ -465,20 +507,10 @@ class IPCamera:
         logging.info(f"IPCamera({self.ip}:{self.port}) disconnected.")
 
     def read(self, temporary_color_mode: str | None = None):
-        if not self.is_connected or self.camera is None:
-            raise RobotDeviceNotConnectedError(
-                f"IPCamera({self.ip}:{self.port}) is not connected. Try running `camera.connect()` first."
-            )
-        # Check if ffmpeg process is still alive before reading
-        if self.stream_process is None or not self.stream_process.is_alive():
-            # Check error queue if ffmpeg died
-            err_msg = "FFmpeg process is not running."
-            if not self._error_queue.empty():
-                err_msg += f" Last error: {self._error_queue.get_nowait()}"
-            self.disconnect()  # Perform full cleanup
-            raise RuntimeError(err_msg)
-
         return self.camera.read(temporary_color_mode)
+
+    def async_read(self):
+        return self.camera.async_read()
 
     def _run_stream(self, error_queue: multiprocessing.Queue, video_url: str, loopback_device: str):
         ffmpeg_cmd_compiled_args = None
