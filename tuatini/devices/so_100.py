@@ -1,7 +1,9 @@
 import json
+import logging
 import time
 from pathlib import Path
 
+import numpy as np
 import torch
 
 from tuatini.devices.camera import IPCamera, OpenCVCamera
@@ -30,6 +32,13 @@ class SO100Robot:
 
         self.calibration_dir = Path(substitute_path_variables(self.config["calibration_dir"]))
         self.is_connected = False
+        self.logs = {}
+
+        # TODO: Add this inside this class (not the config)
+        # `max_relative_target` limits the magnitude of the relative positional target vector for safety purposes.
+        # Set this to a positive scalar to have the same value for all motors, or a list that is the same length as
+        # the number of motors in your follower arms.
+        self.max_relative_target: int | None = None
 
     @property
     def num_cameras(self):
@@ -164,12 +173,57 @@ class SO100Robot:
 
         self.is_connected = False
 
+    def _ensure_safe_goal_position(
+        goal_pos: torch.Tensor, present_pos: torch.Tensor, max_relative_target: float | list[float]
+    ):
+        # Cap relative action target magnitude for safety.
+        diff = goal_pos - present_pos
+        max_relative_target = torch.tensor(max_relative_target)
+        safe_diff = torch.minimum(diff, max_relative_target)
+        safe_diff = torch.maximum(safe_diff, -max_relative_target)
+        safe_goal_pos = present_pos + safe_diff
+
+        if not torch.allclose(goal_pos, safe_goal_pos):
+            logging.warning(
+                "Relative goal position magnitude had to be clamped to be safe.\n"
+                f"  requested relative goal position target: {diff}\n"
+                f"    clamped relative goal position target: {safe_diff}"
+            )
+
+        return safe_goal_pos
+
     def teleop_step(self, record_data=False) -> None | tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         if not self.is_connected:
             raise RobotDeviceNotConnectedError("ManipulatorRobot is not connected. You need to run `robot.connect()`.")
         leader_pos = {}
+
+        # Prepare to assign the position of the leader to the follower
         for name in self.leader_arms:
             before_lread_t = time.perf_counter()
             leader_pos[name] = self.leader_arms[name].read("Present_Position")
             leader_pos[name] = torch.from_numpy(leader_pos[name])
             self.logs[f"read_leader_{name}_pos_dt_s"] = time.perf_counter() - before_lread_t
+
+        # Send goal position to the follower
+        follower_goal_pos = {}
+        for name in self.follower_arms:
+            before_fwrite_t = time.perf_counter()
+            goal_pos = leader_pos[name]
+
+            # Cap goal position when too far away from present position.
+            # Slower fps expected due to reading from the follower.
+            if self.max_relative_target is not None:
+                present_pos = self.follower_arms[name].read("Present_Position")
+                present_pos = torch.from_numpy(present_pos)
+                goal_pos = self._ensure_safe_goal_position(goal_pos, present_pos, self.config.max_relative_target)
+
+            # Used when record_data=True
+            follower_goal_pos[name] = goal_pos
+
+            goal_pos = goal_pos.numpy().astype(np.float32)
+            self.follower_arms[name].write("Goal_Position", goal_pos)
+            self.logs[f"write_follower_{name}_goal_pos_dt_s"] = time.perf_counter() - before_fwrite_t
+
+        # Early exit when recording data is not requested
+        if not record_data:
+            return

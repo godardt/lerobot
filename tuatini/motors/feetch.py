@@ -337,6 +337,43 @@ class FeetechMotorsBus:
 
         return values
 
+    def revert_calibration(self, values: np.ndarray | list, motor_names: list[str] | None):
+        """Inverse of `apply_calibration`."""
+        if motor_names is None:
+            motor_names = self.motor_names
+
+        for i, name in enumerate(motor_names):
+            calib_idx = self.calibration["motor_names"].index(name)
+            calib_mode = self.calibration["calib_mode"][calib_idx]
+
+            if CalibrationMode[calib_mode] == CalibrationMode.DEGREE:
+                drive_mode = self.calibration["drive_mode"][calib_idx]
+                homing_offset = self.calibration["homing_offset"][calib_idx]
+
+                # Convert from nominal 0-centered degree range [-180, 180] to
+                # 0-centered resolution range (e.g. [-2048, 2048] for resolution=4096)
+                values[i] = values[i] / HALF_TURN_DEGREE * (MODEL_RESOLUTION // 2)
+
+                # Subtract the homing offsets to come back to actual motor range of values
+                # which can be arbitrary.
+                values[i] -= homing_offset
+
+                # Remove drive mode, which is the rotation direction of the motor, to come back to
+                # actual motor rotation direction which can be arbitrary.
+                if drive_mode:
+                    values[i] *= -1
+
+            elif CalibrationMode[calib_mode] == CalibrationMode.LINEAR:
+                start_pos = self.calibration["start_pos"][calib_idx]
+                end_pos = self.calibration["end_pos"][calib_idx]
+
+                # Convert from nominal lnear range of [0, 100] % to
+                # actual motor range of values which can be arbitrary.
+                values[i] = values[i] / 100 * (end_pos - start_pos) + start_pos
+
+        values = np.round(values).astype(np.int32)
+        return values
+
     def autocorrect_calibration(self, values: np.ndarray | list, motor_names: list[str] | None):
         """This function automatically detects issues with values of motors after calibration, and correct for these issues.
 
