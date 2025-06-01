@@ -101,8 +101,7 @@ def main(config):
     robot.connect()
 
     rerun_config = config.get("rerun")
-    # TODO: Add rerun config
-    # _init_rerun(rerun_config.get("viewer_ip"), rerun_config.get("viewer_port"))
+    _init_rerun(rerun_config.get("viewer_ip"), rerun_config.get("viewer_port"))
 
     _teleoperate(robot, record_data=True)
     print("Shutting down...")
