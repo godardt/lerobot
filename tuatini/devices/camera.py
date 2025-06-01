@@ -512,6 +512,13 @@ class IPCamera:
     def async_read(self):
         return self.camera.async_read()
 
+    @property
+    def logs(self):
+        if not self.is_connected:
+            raise RobotDeviceNotConnectedError(f"IPCamera({self.ip}:{self.port}) is not connected.")
+
+        return self.camera.logs
+
     def _run_stream(self, error_queue: multiprocessing.Queue, video_url: str, loopback_device: str):
         ffmpeg_cmd_compiled_args = None
         # ffmpeg_popen_obj will now store the Popen object directly

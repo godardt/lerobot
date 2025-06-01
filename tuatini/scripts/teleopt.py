@@ -62,7 +62,7 @@ def _teleoperate(
     record_data=False,
     control_time_s=float("inf"),
     dataset: LeRobotDatasetMetadata = None,
-    task_name: None | str = None,
+    single_task: None | str = None,
 ):
     if not robot.is_connected:
         robot.connect()
@@ -79,7 +79,7 @@ def _teleoperate(
 
         observation, action = robot.teleop_step(record_data=record_data)
         if dataset is not None:
-            frame = {**observation, **action, "task": task_name}
+            frame = {**observation, **action, "task": single_task}
             dataset.add_frame(frame)
 
         dt_s = time.perf_counter() - start_loop_t
