@@ -1,0 +1,60 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Lerobot: Record dataset",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/lerobot/scripts/control_robot.py",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PIXI_ENV": "1",
+                "DISPLAY": "",
+                "HF_USER": "Ekami"
+            },
+            "args": [
+                "--robot.type=so100",
+                "--control.type=record",
+                "--control.fps=30",
+                "--control.single_task=\"Grasp a lego block and put it in the bin.\"",
+                "--control.display_data=true",
+                "--control.repo_id=${HF_USER}/so101_test",
+                "--control.tags=[\"so101\",\"tutorial\"]",
+                "--control.warmup_time_s=5",
+                "--control.episode_time_s=30",
+                "--control.reset_time_s=30",
+                "--control.num_episodes=2",
+                "--control.display_data=true"
+            ]
+        },
+        {
+            "name": "Lerobot: Teleopt",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/lerobot/scripts/control_robot.py",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PIXI_ENV": "1",
+                "DISPLAY": ""
+            },
+            "args": [
+                "--robot.type=so100",
+                "--control.type=teleoperate",
+                "--control.display_data=true"
+            ]
+        },
+        {
+            "name": "Tuatini: Teleopt",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tuatini/scripts/teleopt.py",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}/tuatini"
+        }
+    ]
+}
