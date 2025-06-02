@@ -43,4 +43,4 @@ huggingface_hub = ">=0.31.4,<0.33"
 [pypi-dependencies]
 draccus = "==0.10.0"
 torchcodec = ">=0.4.0, <0.5"
-#lerobot = { path = ".", editable = true, extras = ["feetech"] }
+feetech-servo-sdk = ">=1.0.0"

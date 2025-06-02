@@ -199,7 +199,7 @@ class SO100Robot:
 
         return safe_goal_pos
 
-    def teleop_step(self, record_data=False) -> None | tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+    def teleop_step(self) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         if not self.is_connected:
             raise RobotDeviceNotConnectedError("ManipulatorRobot is not connected. You need to run `robot.connect()`.")
         leader_pos = {}
@@ -230,10 +230,6 @@ class SO100Robot:
             goal_pos = goal_pos.numpy().astype(np.float32)
             self.follower_arms[name].write("Goal_Position", goal_pos)
             self.logs[f"write_follower_{name}_goal_pos_dt_s"] = time.perf_counter() - before_fwrite_t
-
-        # Early exit when recording data is not requested
-        if not record_data:
-            return
 
         # TODO: Add velocity and other info
         # Read follower position

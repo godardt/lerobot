@@ -1,7 +1,3 @@
-rerun:
-  viewer_ip: 100.110.81.39 # Macbook air IP
-  viewer_port: 9876
-
 robot:
   type: so100
   calibration_dir: $PROJECT_DIR/.cache/calibration/so100/
@@ -31,3 +27,13 @@ robot:
       width: 640
       height: 480
       rotation: 180
+
+dataset_recording:
+  repo_id: Ekami/so100
+  tags:
+    - so100
+  episode_time_s: 30
+  reset_time_s: 30
+  num_episodes: 2
+  fps: 30
+

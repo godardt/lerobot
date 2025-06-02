@@ -5,7 +5,7 @@
             "name": "Lerobot: Record dataset",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/lerobot/scripts/control_robot.py",
+            "module": "lerobot.scripts.control_robot",
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
             "cwd": "${workspaceFolder}",
@@ -33,7 +33,7 @@
             "name": "Lerobot: Teleopt",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/lerobot/scripts/control_robot.py",
+            "module": "lerobot.scripts.control_robot",
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
             "cwd": "${workspaceFolder}",
@@ -51,10 +51,19 @@
             "name": "Tuatini: Teleopt",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/tuatini/scripts/teleopt.py",
+            "module": "tuatini.scripts.teleopt",
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
-            "cwd": "${workspaceFolder}/tuatini"
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Tuatini: Record dataset",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "tuatini.scripts.record_dataset",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}"
         }
     ]
 }
