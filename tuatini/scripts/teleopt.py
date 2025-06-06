@@ -6,11 +6,12 @@ import yaml
 
 from tuatini.devices.so_100 import SO100Robot
 from tuatini.utils.logs import init_logging, init_rerun, log_control_info, log_rr_event
+from tuatini.utils.time import busy_wait
 
 root_dir = Path(__file__).parent.parent
 
 
-def _teleoperate(robot: SO100Robot, control_time_s=float("inf")):
+def _teleoperate(robot: SO100Robot, control_time_s=float("inf"), fps=30):
     if not robot.is_connected:
         robot.connect()
 
@@ -24,8 +25,9 @@ def _teleoperate(robot: SO100Robot, control_time_s=float("inf")):
 
         log_rr_event(action, observation)
         dt_s = time.perf_counter() - start_loop_t
-        log_control_info(dt_s, fps=30)
+        busy_wait(1 / fps - dt_s)
 
+        log_control_info(dt_s, fps=fps)
         timestamp = time.perf_counter() - start_episode_t
 
 
@@ -43,7 +45,8 @@ def main(config):
 
     init_rerun()
 
-    _teleoperate(robot)
+    # Since it's only teleop we can run at higher FPS
+    _teleoperate(robot, fps=60)
     print("Shutting down...")
 
 

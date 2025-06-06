@@ -6,6 +6,7 @@ import subprocess
 import threading
 import time
 from threading import Thread
+from typing import Protocol
 
 import cv2
 import ffmpeg
@@ -17,7 +18,16 @@ from tuatini.utils.exceptions import RobotDeviceAlreadyConnectedError, RobotDevi
 from tuatini.utils.time import capture_timestamp_utc
 
 
-class OpenCVCamera:
+class Camera(Protocol):
+    def connect(self): ...
+    def disconnect(self): ...
+    def read(self): ...
+    def async_read(self): ...
+    def __enter__(self): ...
+    def __exit__(self, exc_type, exc_val, exc_tb): ...
+
+
+class OpenCVCamera(Camera):
     def __init__(self, device, capture_fps, capture_width, capture_height, rotation, color_mode="rgb"):
         self.device_path = device  # Store original path for clarity
         # OpenCV expects an integer index or a string device path.
@@ -252,7 +262,7 @@ class OpenCVCamera:
         self.disconnect()
 
 
-class IPCamera:
+class IPCamera(Camera):
     def __init__(self, ip, port, capture_fps, capture_width, capture_height, rotation, color_mode="rgb"):
         self.ip = ip
         self.port = port

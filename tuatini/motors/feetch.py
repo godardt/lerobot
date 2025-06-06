@@ -115,10 +115,11 @@ class RobotDeviceAlreadyConnectedError(Exception):
         super().__init__(self.message)
 
 
+# Servos are either in degree or linear mode.
 class CalibrationMode(enum.Enum):
     # Joints with rotational motions are expressed in degrees in nominal range of [-180, 180]
     DEGREE = 0
-    # Joints with linear motions (like gripper of Aloha) are expressed in nominal range of [0, 100]
+    # Joints with linear motions are expressed in nominal range of [0, 100]
     LINEAR = 1
 
 

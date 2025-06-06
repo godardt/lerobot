@@ -30,10 +30,9 @@ robot:
 
 dataset_recording:
   repo_id: Ekami/so100
+  fps: 30
   tags:
     - so100
+    - Stack bricks
   episode_time_s: 30
-  reset_time_s: 30
-  num_episodes: 2
-  fps: 30
 

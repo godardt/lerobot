@@ -6,13 +6,14 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from tuatini.devices.camera import IPCamera, OpenCVCamera
+from tuatini.devices.camera import Camera, IPCamera, OpenCVCamera
+from tuatini.devices.robots import Robot
 from tuatini.motors.feetch import FeetechMotorsBus, FeetechTorqueMode
 from tuatini.utils.exceptions import RobotDeviceAlreadyConnectedError, RobotDeviceNotConnectedError
 from tuatini.utils.io import get_arm_id, substitute_path_variables
 
 
-class SO100Robot:
+class SO100Robot(Robot):
     def __init__(self, config):
         self.config = config
         # name: (index, model)
@@ -41,8 +42,16 @@ class SO100Robot:
         self.max_relative_target: int | None = None
 
     @property
+    def type(self):
+        return "so_100"
+
+    @property
     def num_cameras(self):
         return len(self.cameras)
+
+    @property
+    def cameras(self) -> dict[str, Camera]:
+        return self.cameras
 
     def make_motors_buses_from_configs(self, arms_config):
         motors_buses = {}
