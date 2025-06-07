@@ -510,6 +510,7 @@
 #         ts_utc_name = FeetechMotorsBus.get_log_name("timestamp_utc", "write", data_name, motor_names)
 #         self.logs[ts_utc_name] = capture_timestamp_utc()
 import logging
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
@@ -518,6 +519,7 @@ from pprint import pformat
 from typing import TypeAlias
 
 import scservo_sdk as scs
+import serial
 
 from tuatini.motors.feetech_table import (
     FIRMWARE_MAJOR_VERSION,
@@ -531,6 +533,7 @@ from tuatini.motors.feetech_table import (
     MODEL_RESOLUTION,
     SCAN_BAUDRATES,
 )
+from tuatini.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
 DEFAULT_PROTOCOL_VERSION = 0
 DEFAULT_BAUDRATE = 1_000_000
@@ -675,18 +678,84 @@ class FeetechMotorsBus:
         self._assert_same_protocol()
 
         self.port_handler = scs.PortHandler(self.port)
-        self.packet_handler = scs.PacketHandler(protocol_version)
-        self.sync_reader = scs.GroupSyncRead(self.port_handler, self.packet_handler, 0, 0)
-        self.sync_writer = scs.GroupSyncWrite(self.port_handler, self.packet_handler, 0, 0)
+        self.packet_handler = scs.protocol_packet_handler(self.port_handler, protocol_version)
+        self.sync_reader = scs.GroupSyncRead(self.packet_handler, 0, 0)
+        self.sync_writer = scs.GroupSyncWrite(self.packet_handler, 0, 0)
         self._comm_success = scs.COMM_SUCCESS
         self._no_error = 0x00
 
         if any(MODEL_PROTOCOL[model] != self.protocol_version for model in self.models):
             raise ValueError(f"Some motors are incompatible with protocol_version={self.protocol_version}")
 
+        self._id_to_model_dict = {m.id: m.model for m in self.motors.values()}
+
     def _assert_same_protocol(self) -> None:
         if any(MODEL_PROTOCOL[model] != self.protocol_version for model in self.models):
             raise RuntimeError("Some motors use an incompatible protocol.")
+
+    @property
+    def is_connected(self) -> bool:
+        """bool: `True` if the underlying serial port is open."""
+        return self.port_handler.is_open
+
+    def _connect(self, handshake: bool = True) -> None:
+        try:
+            if not self.port_handler.openPort():
+                raise OSError(f"Failed to open port '{self.port}'.")
+            elif handshake:
+                self._handshake()
+        except (FileNotFoundError, OSError, serial.SerialException) as e:
+            raise ConnectionError(
+                f"\nCould not connect on port '{self.port}'. Make sure you are using the correct port."
+                "\nTry running `python lerobot/find_port.py`\n"
+            ) from e
+
+    def set_timeout(self, timeout_ms: int | None = None):
+        """Change the packet timeout used by the SDK.
+
+        Args:
+            timeout_ms (int | None, optional): Timeout in *milliseconds*. If `None` (default) the method falls
+                back to :pyattr:`default_timeout`.
+        """
+        timeout_ms = timeout_ms if timeout_ms is not None else self.default_timeout
+        self.port_handler.setPacketTimeoutMillis(timeout_ms)
+
+    def connect(self, handshake: bool = True) -> None:
+        """Open the serial port and initialise communication.
+
+        Args:
+            handshake (bool, optional): Pings every expected motor and performs additional
+                integrity checks specific to the implementation. Defaults to `True`.
+
+        Raises:
+            DeviceAlreadyConnectedError: The port is already open.
+            ConnectionError: The underlying SDK failed to open the port or the handshake did not succeed.
+        """
+        if self.is_connected:
+            raise DeviceAlreadyConnectedError(
+                f"{self.__class__.__name__}('{self.port}') is already connected. Do not call `{self.__class__.__name__}.connect()` twice."
+            )
+
+        self._connect(handshake)
+        self.set_timeout()
+        logging.debug(f"{self.__class__.__name__} connected.")
+
+    @contextmanager
+    def torque_disabled(self):
+        """Context-manager that guarantees torque is re-enabled.
+
+        This helper is useful to temporarily disable torque when configuring motors.
+
+        Examples:
+            >>> with bus.torque_disabled():
+            ...     # Safe operations here
+            ...     pass
+        """
+        self.disable_torque()
+        try:
+            yield
+        finally:
+            self.enable_torque()
 
     @cached_property
     def models(self) -> list[str]:
@@ -711,6 +780,93 @@ class FeetechMotorsBus:
                 "Update their firmware first using Feetech's software. "
                 "Visit https://www.feetechrc.com/software."
             )
+
+    @cached_property
+    def ids(self) -> list[int]:
+        return [m.id for m in self.motors.values()]
+
+    def _get_motor_id(self, motor: NameOrID) -> int:
+        if isinstance(motor, str):
+            return self.motors[motor].id
+        elif isinstance(motor, int):
+            return motor
+        else:
+            raise TypeError(f"'{motor}' should be int, str.")
+
+    def _is_comm_success(self, comm: int) -> bool:
+        return comm == self._comm_success
+
+    def _is_error(self, error: int) -> bool:
+        return error != self._no_error
+
+    def ping(self, motor: NameOrID, num_retry: int = 0, raise_on_error: bool = False) -> int | None:
+        """Ping a single motor and return its model number.
+
+        Args:
+            motor (NameOrID): Target motor (name or ID).
+            num_retry (int, optional): Extra attempts before giving up. Defaults to `0`.
+            raise_on_error (bool, optional): If `True` communication errors raise exceptions instead of
+                returning `None`. Defaults to `False`.
+
+        Returns:
+            int | None: Motor model number or `None` on failure.
+        """
+        id_ = self._get_motor_id(motor)
+        for n_try in range(1 + num_retry):
+            model_number, comm, error = self.packet_handler.ping(id_)
+            if self._is_comm_success(comm):
+                break
+            logging.debug(f"ping failed for {id_=}: {n_try=} got {comm=} {error=}")
+
+        if not self._is_comm_success(comm):
+            if raise_on_error:
+                raise ConnectionError(self.packet_handler.getTxRxResult(comm))
+            else:
+                return
+        if self._is_error(error):
+            if raise_on_error:
+                raise RuntimeError(self.packet_handler.getRxPacketError(error))
+            else:
+                return
+
+        return model_number
+
+    def _assert_motors_exist(self) -> None:
+        expected_models = {m.id: self.model_number_table[m.model] for m in self.motors.values()}
+
+        found_models = {}
+        for id_ in self.ids:
+            model_nb = self.ping(id_)
+            if model_nb is not None:
+                found_models[id_] = model_nb
+
+        missing_ids = [id_ for id_ in self.ids if id_ not in found_models]
+        wrong_models = {
+            id_: (expected_models[id_], found_models[id_])
+            for id_ in found_models
+            if expected_models.get(id_) != found_models[id_]
+        }
+
+        if missing_ids or wrong_models:
+            error_lines = [f"{self.__class__.__name__} motor check failed on port '{self.port}':"]
+
+            if missing_ids:
+                error_lines.append("\nMissing motor IDs:")
+                error_lines.extend(f"  - {id_} (expected model: {expected_models[id_]})" for id_ in missing_ids)
+
+            if wrong_models:
+                error_lines.append("\nMotors with incorrect model numbers:")
+                error_lines.extend(
+                    f"  - {id_} ({self._id_to_name(id_)}): expected {expected}, found {found}"
+                    for id_, (expected, found) in wrong_models.items()
+                )
+
+            error_lines.append("\nFull expected motor list (id: model_number):")
+            error_lines.append(pformat(expected_models, indent=4, sort_dicts=False))
+            error_lines.append("\nFull found motor list (id: model_number):")
+            error_lines.append(pformat(found_models, indent=4, sort_dicts=False))
+
+            raise RuntimeError("\n".join(error_lines))
 
     def _handshake(self) -> None:
         self._assert_motors_exist()
@@ -766,11 +922,11 @@ class FeetechMotorsBus:
         for motor in self.motors:
             # By default, Feetech motors have a 500µs delay response time (corresponding to a value of 250 on
             # the 'Return_Delay_Time' address). We ensure this is reduced to the minimum of 2µs (value of 0).
-            self.write("Return_Delay_Time", motor, 0)
+            self.write_register("Return_Delay_Time", motor, 0)
             # Set 'Maximum_Acceleration' to 254 to speedup acceleration and deceleration of the motors.
             # Note: this address is not in the official STS3215 Memory Table
-            self.write("Maximum_Acceleration", motor, 254)
-            self.write("Acceleration", motor, 254)
+            self.write_register("Maximum_Acceleration", motor, 254)
+            self.write_register("Acceleration", motor, 254)
 
     @property
     def is_calibrated(self) -> bool:
@@ -793,9 +949,11 @@ class FeetechMotorsBus:
     def read_calibration(self) -> dict[str, MotorCalibration]:
         offsets, mins, maxes = {}, {}, {}
         for motor in self.motors:
-            mins[motor] = self.read("Min_Position_Limit", motor, normalize=False)
-            maxes[motor] = self.read("Max_Position_Limit", motor, normalize=False)
-            offsets[motor] = self.read("Homing_Offset", motor, normalize=False) if self.protocol_version == 0 else 0
+            mins[motor] = self.read_register("Min_Position_Limit", motor, normalize=False)
+            maxes[motor] = self.read_register("Max_Position_Limit", motor, normalize=False)
+            offsets[motor] = (
+                self.read_register("Homing_Offset", motor, normalize=False) if self.protocol_version == 0 else 0
+            )
 
         calibration = {}
         for motor, m in self.motors.items():
@@ -831,10 +989,20 @@ class FeetechMotorsBus:
 
         return half_turn_homings
 
+    def _get_motors_list(self, motors: str | list[str] | None) -> list[str]:
+        if motors is None:
+            return list(self.motors)
+        elif isinstance(motors, str):
+            return [motors]
+        elif isinstance(motors, list):
+            return motors.copy()
+        else:
+            raise TypeError(motors)
+
     def disable_torque(self, motors: str | list[str] | None = None, num_retry: int = 0) -> None:
         for motor in self._get_motors_list(motors):
-            self.write("Torque_Enable", motor, TorqueMode.DISABLED.value, num_retry=num_retry)
-            self.write("Lock", motor, 0, num_retry=num_retry)
+            self.write_register("Torque_Enable", motor, TorqueMode.DISABLED.value, num_retry=num_retry)
+            self.write_register("Lock", motor, 0, num_retry=num_retry)
 
     def _disable_torque(self, motor_id: int, model: str, num_retry: int = 0) -> None:
         addr, length = get_address(self.model_ctrl_table, model, "Torque_Enable")
@@ -844,8 +1012,8 @@ class FeetechMotorsBus:
 
     def enable_torque(self, motors: str | list[str] | None = None, num_retry: int = 0) -> None:
         for motor in self._get_motors_list(motors):
-            self.write("Torque_Enable", motor, TorqueMode.ENABLED.value, num_retry=num_retry)
-            self.write("Lock", motor, 1, num_retry=num_retry)
+            self.write_register("Torque_Enable", motor, TorqueMode.ENABLED.value, num_retry=num_retry)
+            self.write_register("Lock", motor, 1, num_retry=num_retry)
 
     def _encode_sign(self, data_name: str, ids_values: dict[int, int]) -> dict[int, int]:
         for id_ in ids_values:
@@ -856,6 +1024,9 @@ class FeetechMotorsBus:
                 ids_values[id_] = encode_sign_magnitude(ids_values[id_], sign_bit)
 
         return ids_values
+
+    def _id_to_model(self, motor_id: int) -> str:
+        return self._id_to_model_dict[motor_id]
 
     def _decode_sign(self, data_name: str, ids_values: dict[int, int]) -> dict[int, int]:
         for id_ in ids_values:
@@ -959,6 +1130,165 @@ class FeetechMotorsBus:
             logging.error(f"Some motors found returned an error status:\n{pformat(display_dict, indent=4)}")
 
         return self._read_model_number(list(ids_status), raise_on_error)
+
+    def _serialize_data(self, value: int, length: int) -> list[int]:
+        """
+        Converts an unsigned integer value into a list of byte-sized integers to be sent via a communication
+        protocol. Depending on the protocol, split values can be in big-endian or little-endian order.
+
+        Supported data length for both Feetech and Dynamixel:
+            - 1 (for values 0 to 255)
+            - 2 (for values 0 to 65,535)
+            - 4 (for values 0 to 4,294,967,295)
+        """
+        if value < 0:
+            raise ValueError(f"Negative values are not allowed: {value}")
+
+        max_value = {1: 0xFF, 2: 0xFFFF, 4: 0xFFFFFFFF}.get(length)
+        if max_value is None:
+            raise NotImplementedError(f"Unsupported byte size: {length}. Expected [1, 2, 4].")
+
+        if value > max_value:
+            raise ValueError(f"Value {value} exceeds the maximum for {length} bytes ({max_value}).")
+
+        return self._split_into_byte_chunks(value, length)
+
+    def _read(
+        self,
+        address: int,
+        length: int,
+        motor_id: int,
+        *,
+        num_retry: int = 0,
+        raise_on_error: bool = True,
+        err_msg: str = "",
+    ) -> tuple[int, int]:
+        if length == 1:
+            read_fn = self.packet_handler.read1ByteTxRx
+        elif length == 2:
+            read_fn = self.packet_handler.read2ByteTxRx
+        elif length == 4:
+            read_fn = self.packet_handler.read4ByteTxRx
+        else:
+            raise ValueError(length)
+
+        for n_try in range(1 + num_retry):
+            value, comm, error = read_fn(motor_id, address)
+            if self._is_comm_success(comm):
+                break
+            logging.debug(
+                f"Failed to read @{address=} ({length=}) on {motor_id=} ({n_try=}): "
+                + self.packet_handler.getTxRxResult(comm)
+            )
+
+        if not self._is_comm_success(comm) and raise_on_error:
+            raise ConnectionError(f"{err_msg} {self.packet_handler.getTxRxResult(comm)}")
+        elif self._is_error(error) and raise_on_error:
+            raise RuntimeError(f"{err_msg} {self.packet_handler.getRxPacketError(error)}")
+
+        return value, comm, error
+
+    def read_register(
+        self,
+        data_name: str,
+        motor: str,
+        *,
+        normalize: bool = True,
+        num_retry: int = 0,
+    ) -> Value:
+        """Read a register from a motor.
+
+        Args:
+            data_name (str): Control-table key (e.g. `"Present_Position"`).
+            motor (str): Motor name.
+            normalize (bool, optional): When `True` (default) scale the value to a user-friendly range as
+                defined by the calibration.
+            num_retry (int, optional): Retry attempts.  Defaults to `0`.
+
+        Returns:
+            Value: Raw or normalised value depending on *normalize*.
+        """
+        if not self.is_connected:
+            raise DeviceNotConnectedError(
+                f"{self.__class__.__name__}('{self.port}') is not connected. You need to run `{self.__class__.__name__}.connect()`."
+            )
+
+        id_ = self.motors[motor].id
+        model = self.motors[motor].model
+        addr, length = get_address(self.model_ctrl_table, model, data_name)
+
+        err_msg = f"Failed to read '{data_name}' on {id_=} after {num_retry + 1} tries."
+        value, _, _ = self._read(addr, length, id_, num_retry=num_retry, raise_on_error=True, err_msg=err_msg)
+
+        id_value = self._decode_sign(data_name, {id_: value})
+
+        if normalize and data_name in self.normalized_data:
+            id_value = self._normalize(id_value)
+
+        return id_value[id_]
+
+    def _write(
+        self,
+        addr: int,
+        length: int,
+        motor_id: int,
+        value: int,
+        *,
+        num_retry: int = 0,
+        raise_on_error: bool = True,
+        err_msg: str = "",
+    ) -> tuple[int, int]:
+        data = self._serialize_data(value, length)
+        for n_try in range(1 + num_retry):
+            comm, error = self.packet_handler.writeTxRx(motor_id, addr, length, data)
+            if self._is_comm_success(comm):
+                break
+            logging.debug(
+                f"Failed to sync write @{addr=} ({length=}) on id={motor_id} with {value=} ({n_try=}): "
+                + self.packet_handler.getTxRxResult(comm)
+            )
+
+        if not self._is_comm_success(comm) and raise_on_error:
+            raise ConnectionError(f"{err_msg} {self.packet_handler.getTxRxResult(comm)}")
+        elif self._is_error(error) and raise_on_error:
+            raise RuntimeError(f"{err_msg} {self.packet_handler.getRxPacketError(error)}")
+
+        return comm, error
+
+    def write_register(
+        self, data_name: str, motor: str, value: Value, *, normalize: bool = True, num_retry: int = 0
+    ) -> None:
+        """Write a value to a single motor's register.
+
+        Contrary to :pymeth:`sync_write`, this expects a response status packet emitted by the motor, which
+        provides a guarantee that the value was written to the register successfully. In consequence, it is
+        slower than :pymeth:`sync_write` but it is more reliable. It should typically be used when configuring
+        motors.
+
+        Args:
+            data_name (str): Register name.
+            motor (str): Motor name.
+            value (Value): Value to write.  If *normalize* is `True` the value is first converted to raw
+                units.
+            normalize (bool, optional): Enable or disable normalisation. Defaults to `True`.
+            num_retry (int, optional): Retry attempts.  Defaults to `0`.
+        """
+        if not self.is_connected:
+            raise DeviceNotConnectedError(
+                f"{self.__class__.__name__}('{self.port}') is not connected. You need to run `{self.__class__.__name__}.connect()`."
+            )
+
+        id_ = self.motors[motor].id
+        model = self.motors[motor].model
+        addr, length = get_address(self.model_ctrl_table, model, data_name)
+
+        if normalize and data_name in self.normalized_data:
+            value = self._unnormalize({id_: value})[id_]
+
+        value = self._encode_sign(data_name, {id_: value})[id_]
+
+        err_msg = f"Failed to write '{data_name}' on {id_=} with '{value}' after {num_retry + 1} tries."
+        self._write(addr, length, id_, value, num_retry=num_retry, raise_on_error=True, err_msg=err_msg)
 
     def _read_firmware_version(self, motor_ids: list[int], raise_on_error: bool = False) -> dict[int, str]:
         firmware_versions = {}

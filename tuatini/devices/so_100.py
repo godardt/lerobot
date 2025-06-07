@@ -5,7 +5,7 @@ from pathlib import Path
 from pprint import pformat
 from typing import Any
 
-from tuatini.devices.camera import Camera, IPCamera, OpenCVCamera
+from tuatini.devices.camera import Camera
 from tuatini.devices.robots import Motor, MotorCalibration, MotorNormMode, Robot
 from tuatini.motors.feetech import FeetechMotorsBus, OperatingMode
 from tuatini.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
@@ -13,13 +13,12 @@ from tuatini.utils.io import substitute_path_variables
 
 
 class SO100Robot(Robot):
-    def __init__(self, config):
-        self.config = config
+    def __init__(self, device, calibration_dir, cameras=None):
         norm_mode_body = MotorNormMode.RANGE_M100_100
-        calibration_dir = Path(substitute_path_variables(self.config["calibration_dir"]))
+        calibration_dir = Path(substitute_path_variables(calibration_dir))
         self.calibration: dict[str, MotorCalibration] = self._load_calibration(calibration_dir)
         self.bus = FeetechMotorsBus(
-            port=self.config["device"],
+            port=device,
             motors={
                 "shoulder_pan": Motor(1, "sts3215", norm_mode_body),
                 "shoulder_lift": Motor(2, "sts3215", norm_mode_body),
@@ -30,7 +29,7 @@ class SO100Robot(Robot):
             },
             calibration=self.calibration,
         )
-        self._cameras = self.make_cameras_from_configs(config.cameras)
+        self._cameras = cameras if cameras else {}
 
     def _load_calibration(self, fpath: Path) -> None:
         if not fpath.exists():
@@ -67,7 +66,7 @@ class SO100Robot(Robot):
         logging.info(f"\nRunning calibration of {self}")
         self.bus.disable_torque()
         for motor in self.bus.motors:
-            self.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
+            self.bus.write_register("Operating_Mode", motor, OperatingMode.POSITION.value)
 
         logging.info(
             "Calibration guide: https://github.com/huggingface/lerobot/blob/main/lerobot/common/robots/so100_follower/so100.mdx#calibrate"
@@ -128,34 +127,16 @@ class SO100Robot(Robot):
     def is_calibrated(self) -> bool:
         return self.bus.is_calibrated
 
-    def make_cameras_from_configs(self, config):
-        cameras = {}
-        for cam_name, cam_config in config.items():
-            fps = cam_config["fps"]
-            width = cam_config["width"]
-            height = cam_config["height"]
-            rotation = cam_config["rotation"]
-
-            if cam_config["type"] == "ip_camera":
-                ip = cam_config["vcam_ip"]
-                port = cam_config["vcam_port"]
-                cameras[cam_name] = IPCamera(ip, port, fps, width, height, rotation)
-            elif cam_config["type"] == "opencv":
-                device = cam_config["device"]
-                cameras[cam_name] = OpenCVCamera(device, fps, width, height, rotation)
-
-        return cameras
-
     def configure(self) -> None:
         with self.bus.torque_disabled():
             self.bus.configure_motors()
             for motor in self.bus.motors:
-                self.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
+                self.bus.write_register("Operating_Mode", motor, OperatingMode.POSITION.value)
                 # Set P_Coefficient to lower value to avoid shakiness (Default is 32)
-                self.bus.write("P_Coefficient", motor, 16)
+                self.bus.write_register("P_Coefficient", motor, 16)
                 # Set I_Coefficient and D_Coefficient to default value 0 and 32
-                self.bus.write("I_Coefficient", motor, 0)
-                self.bus.write("D_Coefficient", motor, 4)
+                self.bus.write_register("I_Coefficient", motor, 0)
+                self.bus.write_register("D_Coefficient", motor, 4)
 
     def connect(self, calibrate: bool = True):
         if self.is_connected:

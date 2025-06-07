@@ -8,6 +8,7 @@ from tuatini.datasets.lerobot import LeRobotDataset
 from tuatini.devices.so_100 import SO100Robot
 from tuatini.utils.logs import init_logging, init_rerun, log_control_info, log_rr_event
 from tuatini.utils.time import busy_wait
+from tuatini.utils.video import make_cameras_from_configs
 
 root_dir = Path(__file__).parent.parent
 
@@ -101,7 +102,10 @@ def main(config):
 
     for robot_type in ["leader_arms", "follower_arms"]:
         for arm_config in config["robots"][robot_type]:
-            robot = SO100Robot(arm_config)
+            device = arm_config["device"]
+            calibration_dir = arm_config["calibration_dir"]
+            cameras = make_cameras_from_configs(arm_config.get("cameras"))
+            robot = SO100Robot(device, calibration_dir, cameras)
             robot.connect()
             if robot_type == "leader_arms":
                 leader_robots.append(robot)
