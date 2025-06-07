@@ -19,6 +19,7 @@
 logs
 tmp
 wandb
+.idea
 
 # Data
 data
@@ -26,9 +27,6 @@ outputs
 
 # Apple
 .DS_Store
-
-# VS Code
-.vscode
 
 # HPC
 nautilus/*.yaml
@@ -172,3 +170,7 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+# pixi environments
+.pixi
+*.egg-info
