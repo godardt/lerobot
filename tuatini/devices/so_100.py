@@ -13,7 +13,8 @@ from tuatini.utils.io import substitute_path_variables
 
 
 class SO100Robot(Robot):
-    def __init__(self, device, calibration_dir, cameras=None):
+    def __init__(self, device, calibration_dir, cameras=None, name="SO-100"):
+        self.name = name
         norm_mode_body = MotorNormMode.RANGE_M100_100
         calibration_dir = Path(substitute_path_variables(calibration_dir))
         self.calibration: dict[str, MotorCalibration] = self._load_calibration(calibration_dir)
@@ -106,6 +107,9 @@ class SO100Robot(Robot):
     @property
     def type(self):
         return "so_100"
+
+    def __str__(self):
+        return self.name
 
     @property
     def num_cameras(self):

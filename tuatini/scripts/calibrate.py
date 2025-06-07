@@ -21,10 +21,10 @@ def main(config):
 
     for robot_type in ["leader_arms", "follower_arms"]:
         for arm_name, arm_config in config["robots"][robot_type].items():
-            logging.info(f"Calibrating {arm_name}...")
+            logging.info(f"Calibrating {robot_type}/{arm_name}...")
             device = arm_config["device"]
             calibration_dir = arm_config["calibration_dir"]
-            robot = SO100Robot(device, calibration_dir)
+            robot = SO100Robot(device, calibration_dir, name=f"{robot_type}/{arm_name}")
             robot.connect(calibrate=False)
             robot.calibrate()
             robot.disconnect()

@@ -591,17 +591,33 @@ class Motor:
     norm_mode: MotorNormMode
 
 
+def scs_lobyte(w):
+    return w & 0xFF
+
+
+def scs_hibyte(w):
+    return (w >> 8) & 0xFF
+
+
+def scs_loword(l):
+    return l & 0xFFFF
+
+
+def scs_hiword(l):
+    return (l >> 16) & 0xFFFF
+
+
 def _split_into_byte_chunks(value: int, length: int) -> list[int]:
     if length == 1:
         data = [value]
     elif length == 2:
-        data = [scs.SCS_LOBYTE(value), scs.SCS_HIBYTE(value)]
+        data = [scs_lobyte(value), scs_lobyte(value)]
     elif length == 4:
         data = [
-            scs.SCS_LOBYTE(scs.SCS_LOWORD(value)),
-            scs.SCS_HIBYTE(scs.SCS_LOWORD(value)),
-            scs.SCS_LOBYTE(scs.SCS_HIWORD(value)),
-            scs.SCS_HIBYTE(scs.SCS_HIWORD(value)),
+            scs_lobyte(scs_loword(value)),
+            scs_hibyte(scs_loword(value)),
+            scs_lobyte(scs_hiword(value)),
+            scs_hibyte(scs_hiword(value)),
         ]
     return data
 
@@ -999,21 +1015,11 @@ class FeetechMotorsBus:
         else:
             raise TypeError(motors)
 
-    def disable_torque(self, motors: str | list[str] | None = None, num_retry: int = 0) -> None:
-        for motor in self._get_motors_list(motors):
-            self.write_register("Torque_Enable", motor, TorqueMode.DISABLED.value, num_retry=num_retry)
-            self.write_register("Lock", motor, 0, num_retry=num_retry)
-
     def _disable_torque(self, motor_id: int, model: str, num_retry: int = 0) -> None:
         addr, length = get_address(self.model_ctrl_table, model, "Torque_Enable")
         self._write(addr, length, motor_id, TorqueMode.DISABLED.value, num_retry=num_retry)
         addr, length = get_address(self.model_ctrl_table, model, "Lock")
         self._write(addr, length, motor_id, 0, num_retry=num_retry)
-
-    def enable_torque(self, motors: str | list[str] | None = None, num_retry: int = 0) -> None:
-        for motor in self._get_motors_list(motors):
-            self.write_register("Torque_Enable", motor, TorqueMode.ENABLED.value, num_retry=num_retry)
-            self.write_register("Lock", motor, 1, num_retry=num_retry)
 
     def _encode_sign(self, data_name: str, ids_values: dict[int, int]) -> dict[int, int]:
         for id_ in ids_values:
@@ -1110,26 +1116,13 @@ class FeetechMotorsBus:
                 del rxpacket[0:idx]
                 rx_length = rx_length - idx
 
-    def broadcast_ping(self, num_retry: int = 0, raise_on_error: bool = False) -> dict[int, int] | None:
-        self._assert_protocol_is_compatible("broadcast_ping")
-        for n_try in range(1 + num_retry):
-            ids_status, comm = self._broadcast_ping()
-            if self._is_comm_success(comm):
-                break
-            logging.debug(f"Broadcast ping failed on port '{self.port}' ({n_try=})")
-            logging.debug(self.packet_handler.getTxRxResult(comm))
-
-        if not self._is_comm_success(comm):
-            if raise_on_error:
-                raise ConnectionError(self.packet_handler.getTxRxResult(comm))
-            return
-
-        ids_errors = {id_: status for id_, status in ids_status.items() if self._is_error(status)}
-        if ids_errors:
-            display_dict = {id_: self.packet_handler.getRxPacketError(err) for id_, err in ids_errors.items()}
-            logging.error(f"Some motors found returned an error status:\n{pformat(display_dict, indent=4)}")
-
-        return self._read_model_number(list(ids_status), raise_on_error)
+    def _get_motor_model(self, motor: NameOrID) -> int:
+        if isinstance(motor, str):
+            return self.motors[motor].model
+        elif isinstance(motor, int):
+            return self._id_to_model_dict[motor]
+        else:
+            raise TypeError(f"'{motor}' should be int, str.")
 
     def _serialize_data(self, value: int, length: int) -> list[int]:
         """
@@ -1152,6 +1145,90 @@ class FeetechMotorsBus:
             raise ValueError(f"Value {value} exceeds the maximum for {length} bytes ({max_value}).")
 
         return self._split_into_byte_chunks(value, length)
+
+    def broadcast_ping(self, num_retry: int = 0, raise_on_error: bool = False) -> dict[int, int] | None:
+        self._assert_protocol_is_compatible("broadcast_ping")
+        for n_try in range(1 + num_retry):
+            ids_status, comm = self._broadcast_ping()
+            if self._is_comm_success(comm):
+                break
+            logging.debug(f"Broadcast ping failed on port '{self.port}' ({n_try=})")
+            logging.debug(self.packet_handler.getTxRxResult(comm))
+
+        if not self._is_comm_success(comm):
+            if raise_on_error:
+                raise ConnectionError(self.packet_handler.getTxRxResult(comm))
+            return
+
+        ids_errors = {id_: status for id_, status in ids_status.items() if self._is_error(status)}
+        if ids_errors:
+            display_dict = {id_: self.packet_handler.getRxPacketError(err) for id_, err in ids_errors.items()}
+            logging.error(f"Some motors found returned an error status:\n{pformat(display_dict, indent=4)}")
+
+        return self._read_model_number(list(ids_status), raise_on_error)
+
+    def enable_torque(self, motors: str | list[str] | None = None, num_retry: int = 0) -> None:
+        for motor in self._get_motors_list(motors):
+            self.write_register("Torque_Enable", motor, TorqueMode.ENABLED.value, num_retry=num_retry)
+            self.write_register("Lock", motor, 1, num_retry=num_retry)
+
+    def disable_torque(self, motors: str | list[str] | None = None, num_retry: int = 0) -> None:
+        for motor in self._get_motors_list(motors):
+            self.write_register("Torque_Enable", motor, TorqueMode.DISABLED.value, num_retry=num_retry)
+            self.write_register("Lock", motor, 0, num_retry=num_retry)
+
+    def reset_calibration(self, motors: NameOrID | list[NameOrID] | None = None) -> None:
+        """Restore factory calibration for the selected motors.
+
+        Homing offset is set to ``0`` and min/max position limits are set to the full usable range.
+        The in-memory :pyattr:`calibration` is cleared.
+
+        Args:
+            motors (NameOrID | list[NameOrID] | None, optional): Selection of motors. `None` (default)
+                resets every motor.
+        """
+        if motors is None:
+            motors = list(self.motors)
+        elif isinstance(motors, (str, int)):
+            motors = [motors]
+        elif not isinstance(motors, list):
+            raise TypeError(motors)
+
+        for motor in motors:
+            model = self._get_motor_model(motor)
+            max_res = self.model_resolution_table[model] - 1
+            self.write_register("Homing_Offset", motor, 0, normalize=False)
+            self.write_register("Min_Position_Limit", motor, 0, normalize=False)
+            self.write_register("Max_Position_Limit", motor, max_res, normalize=False)
+
+        self.calibration = {}
+
+    def set_half_turn_homings(self, motors: NameOrID | list[NameOrID] | None = None) -> dict[NameOrID, Value]:
+        """Centre each motor range around its current position.
+
+        The function computes and writes a homing offset such that the present position becomes exactly one
+        half-turn (e.g. `2047` on a 12-bit encoder).
+
+        Args:
+            motors (NameOrID | list[NameOrID] | None, optional): Motors to adjust. Defaults to all motors (`None`).
+
+        Returns:
+            dict[NameOrID, Value]: Mapping *motor → written homing offset*.
+        """
+        if motors is None:
+            motors = list(self.motors)
+        elif isinstance(motors, (str, int)):
+            motors = [motors]
+        elif not isinstance(motors, list):
+            raise TypeError(motors)
+
+        self.reset_calibration(motors)
+        actual_positions = self.sync_read("Present_Position", motors, normalize=False)
+        homing_offsets = self._get_half_turn_homings(actual_positions)
+        for motor, offset in homing_offsets.items():
+            self.write("Homing_Offset", motor, offset)
+
+        return homing_offsets
 
     def _read(
         self,
