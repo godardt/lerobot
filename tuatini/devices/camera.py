@@ -14,7 +14,7 @@ import numpy as np
 import requests
 from requests.exceptions import RequestException
 
-from tuatini.utils.exceptions import RobotDeviceAlreadyConnectedError, RobotDeviceNotConnectedError
+from tuatini.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 from tuatini.utils.time import capture_timestamp_utc
 
 
@@ -61,7 +61,7 @@ class OpenCVCamera(Camera):
 
     def connect(self):
         if self.is_connected:
-            raise RobotDeviceAlreadyConnectedError(f"OpenCVCamera({self.device_path}) is already connected.")
+            raise DeviceAlreadyConnectedError(f"OpenCVCamera({self.device_path}) is already connected.")
 
         logging.info(f"Connecting to OpenCVCamera device: {self.device_path}")
         # Use 1 thread to avoid blocking the main thread.
@@ -168,7 +168,7 @@ class OpenCVCamera(Camera):
         If you are reading data from other sensors, we advise to use `camera.async_read()` which is non blocking version of `camera.read()`.
         """
         if not self.is_connected or self.camera is None:
-            raise RobotDeviceNotConnectedError(
+            raise DeviceNotConnectedError(
                 f"OpenCVCamera({self.device_path}) is not connected. Try running `camera.connect()` first."
             )
 
@@ -228,7 +228,7 @@ class OpenCVCamera(Camera):
 
     def async_read(self):
         if not self.is_connected:
-            raise RobotDeviceNotConnectedError(
+            raise DeviceNotConnectedError(
                 f"OpenCVCamera({self.camera_index}) is not connected. Try running `camera.connect()` first."
             )
 
@@ -420,7 +420,7 @@ class IPCamera(Camera):
 
     def connect(self):
         if self.is_connected:
-            raise RobotDeviceAlreadyConnectedError(f"IPCamera({self.ip}:{self.port}) is already connected.")
+            raise DeviceAlreadyConnectedError(f"IPCamera({self.ip}:{self.port}) is already connected.")
 
         logging.info(f"Connecting to IPCamera at http://{self.ip}:{self.port}")
         # Check IP camera accessibility
@@ -525,7 +525,7 @@ class IPCamera(Camera):
     @property
     def logs(self):
         if not self.is_connected:
-            raise RobotDeviceNotConnectedError(f"IPCamera({self.ip}:{self.port}) is not connected.")
+            raise DeviceNotConnectedError(f"IPCamera({self.ip}:{self.port}) is not connected.")
 
         return self.camera.logs
 

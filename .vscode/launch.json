@@ -52,6 +52,15 @@
             ]
         },
         {
+            "name": "Tuatini: Calibrate",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "tuatini.scripts.calibrate",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}"
+        },
+        {
             "name": "Tuatini: Teleopt",
             "type": "debugpy",
             "request": "launch",

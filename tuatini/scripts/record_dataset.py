@@ -44,7 +44,8 @@ def sanity_check_dataset_name(repo_id, policy_cfg):
 
 @safe_disconnect
 def _record_dataset(
-    robot: SO100Robot,
+    leader_robots: list[SO100Robot],
+    follower_robots: list[SO100Robot],
     dataset_recording_config: dict,
     record_data=False,
     control_time_s=float("inf"),
@@ -95,12 +96,21 @@ def main(config):
     with open(config, "r") as f:
         config = yaml.safe_load(f)
 
-    robot = SO100Robot(config["robot"])
-    robot.connect()
+    leader_robots = []
+    follower_robots = []
+
+    for robot_type in ["leader_arms", "follower_arms"]:
+        for arm_config in config["robots"][robot_type]:
+            robot = SO100Robot(arm_config)
+            robot.connect()
+            if robot_type == "leader_arms":
+                leader_robots.append(robot)
+            else:
+                follower_robots.append(robot)
 
     init_rerun()
 
-    _record_dataset(robot, config.get("dataset_recording"), record_data=True)
+    _record_dataset(leader_robots, follower_robots, config.get("dataset_recording"), record_data=True)
     print("Shutting down...")
 
 

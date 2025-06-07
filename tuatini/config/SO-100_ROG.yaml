@@ -1,13 +1,15 @@
-robot:
-  type: so100
-  calibration_dir: $PROJECT_DIR/.cache/calibration/so100/
+robots:
   # TODO: Replace device discovery with udev rules
   leader_arms:
     main:
+      type: so100
       device: /dev/ttyACM0
+      calibration_dir: $PROJECT_DIR/.cache/calibration/so100/main_leader.json
   follower_arms:
     main:
+      type: so100
       device: /dev/ttyACM1
+      calibration_dir: $PROJECT_DIR/.cache/calibration/so100/main_follower.json
   cameras:
     # This camera is a Droidcam app running on the smartphone
     front:

@@ -7,12 +7,20 @@ from typing import Callable
 import datasets
 import packaging.version
 import torch
-from datasets.utils.download_manager import get_episode_data_index, get_safe_default_codec, get_safe_version
 
 from tuatini.datasets.compute_stats import aggregate_stats
 from tuatini.devices.robots import Robot
+from tuatini.utils.datasets import (
+    get_safe_version,
+    hf_transform_to_torch,
+    hw_to_dataset_features,
+    write_episode,
+    write_episode_stats,
+    write_info,
+)
 from tuatini.utils.image_writer import AsyncImageWriter
 from tuatini.utils.time import check_delta_timestamps, check_timestamps_sync, get_delta_indices
+from tuatini.utils.video import get_safe_default_codec
 
 CODEBASE_VERSION = "v2.1"
 
@@ -27,14 +35,6 @@ HF_HOME = os.path.expandvars(
 )
 default_cache_path = Path(HF_HOME) / "lerobot"
 HF_LEROBOT_HOME = Path(os.getenv("HF_LEROBOT_HOME", default_cache_path)).expanduser()
-
-DEFAULT_FEATURES = {
-    "timestamp": {"dtype": "float32", "shape": (1,), "names": None},
-    "frame_index": {"dtype": "int64", "shape": (1,), "names": None},
-    "episode_index": {"dtype": "int64", "shape": (1,), "names": None},
-    "index": {"dtype": "int64", "shape": (1,), "names": None},
-    "task_index": {"dtype": "int64", "shape": (1,), "names": None},
-}
 
 DEFAULT_CHUNK_SIZE = 1000  # Max number of episodes per chunk
 DEFAULT_VIDEO_PATH = "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4"
@@ -87,8 +87,8 @@ class LeRobotDatasetMetadata:
                 "In this case, frames from lower fps cameras will be repeated to fill in the blanks."
             )
 
-        tasks, task_to_task_index = {}, {}
-        episodes_stats, stats, episodes = {}, {}, {}
+        self.tasks, self.task_to_task_index = {}, {}
+        self.episodes_stats, self.stats, self.episodes = {}, {}, {}
         info = create_empty_dataset_info(CODEBASE_VERSION, fps, robot_type, features)
         fpath = root / INFO_PATH
         fpath.parent.mkdir(exist_ok=True, parents=True)
@@ -96,13 +96,43 @@ class LeRobotDatasetMetadata:
             json.dump(info, f, indent=4, ensure_ascii=False)
 
     def get_features_from_robot(self, use_videos: bool = True) -> dict:
-        camera_ft = {}
-        if self.robot.cameras:
-            camera_ft = {
-                key: {"dtype": "video" if use_videos else "image", **ft}
-                for key, ft in self.robot.camera_features.items()
-            }
-        return {**self.robot.motor_features, **camera_ft, **DEFAULT_FEATURES}
+        action_features = hw_to_dataset_features(self.robot.action_features, "action", use_video=use_videos)
+        obs_features = hw_to_dataset_features(self.robot.observation_features, "observation", use_video=use_videos)
+        dataset_features = {**action_features, **obs_features}
+        return dataset_features
+
+    def save_episode(
+        self,
+        episode_index: int,
+        episode_length: int,
+        episode_tasks: list[str],
+        episode_stats: dict[str, dict],
+    ) -> None:
+        self.info["total_episodes"] += 1
+        self.info["total_frames"] += episode_length
+
+        chunk = self.get_episode_chunk(episode_index)
+        if chunk >= self.total_chunks:
+            self.info["total_chunks"] += 1
+
+        self.info["splits"] = {"train": f"0:{self.info['total_episodes']}"}
+        self.info["total_videos"] += len(self.video_keys)
+        if len(self.video_keys) > 0:
+            self.update_video_info()
+
+        write_info(self.info, self.root)
+
+        episode_dict = {
+            "episode_index": episode_index,
+            "tasks": episode_tasks,
+            "length": episode_length,
+        }
+        self.episodes[episode_index] = episode_dict
+        write_episode(episode_dict, self.root)
+
+        self.episodes_stats[episode_index] = episode_stats
+        self.stats = aggregate_stats([self.stats, episode_stats]) if self.stats else episode_stats
+        write_episode_stats(episode_index, episode_stats, self.root)
 
 
 class LeRobotDataset(torch.utils.data.Dataset):
@@ -254,7 +284,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
             self.download_episodes(download_videos)
             self.hf_dataset = self.load_hf_dataset()
 
-        self.episode_data_index = get_episode_data_index(self.meta.episodes, self.episodes)
+        self.episode_data_index = LeRobotDataset.get_episode_data_index(self.meta.episodes, self.episodes)
 
         # Check timestamps
         timestamps = torch.stack(self.hf_dataset["timestamp"]).numpy()
@@ -312,13 +342,18 @@ class LeRobotDataset(torch.utils.data.Dataset):
 
         return datasets.Features(hf_features)
 
+    def set_data_format(self, format: str) -> None:
+        if format == "torch":
+            self.hf_dataset.set_transform(hf_transform_to_torch)
+        else:
+            raise ValueError(f"Invalid format: {format}")
+
     def create_hf_dataset(self) -> datasets.Dataset:
         features = self.get_hf_features_from_features()
         ft_dict = {col: [] for col in features}
         hf_dataset = datasets.Dataset.from_dict(ft_dict, features=features, split="train")
 
-        # TODO(aliberts): hf_dataset.set_format("torch")
-        hf_dataset.set_transform(hf_transform_to_torch)
+        hf_dataset.set_format("torch")
         return hf_dataset
 
     @classmethod
@@ -328,7 +363,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
         fps: int,
         root: str | Path | None = None,
         robot: Robot | None = None,
-        features: dict | None = None,
         tolerance_s: float = 1e-4,
         image_writer_processes: int = 0,
         image_writer_threads: int = 0,
@@ -357,7 +391,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
             robot=robot,
             fps=fps,
             root=root,
-            features=features,
         )
         obj.repo_id = obj.meta.repo_id
         obj.root = obj.meta.root

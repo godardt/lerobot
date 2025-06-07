@@ -1,45 +1,108 @@
 import json
 import logging
-import time
+from functools import cached_property
 from pathlib import Path
-
-import numpy as np
-import torch
+from pprint import pformat
+from typing import Any
 
 from tuatini.devices.camera import Camera, IPCamera, OpenCVCamera
-from tuatini.devices.robots import Robot
-from tuatini.motors.feetch import FeetechMotorsBus, FeetechTorqueMode
-from tuatini.utils.exceptions import RobotDeviceAlreadyConnectedError, RobotDeviceNotConnectedError
-from tuatini.utils.io import get_arm_id, substitute_path_variables
+from tuatini.devices.robots import Motor, MotorCalibration, MotorNormMode, Robot
+from tuatini.motors.feetech import FeetechMotorsBus, OperatingMode
+from tuatini.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
+from tuatini.utils.io import substitute_path_variables
 
 
 class SO100Robot(Robot):
     def __init__(self, config):
         self.config = config
-        # name: (index, model)
-        self.motors_bus_configs = {
-            "shoulder_pan": (1, "sts3215"),
-            "shoulder_lift": (2, "sts3215"),
-            "elbow_flex": (3, "sts3215"),
-            "wrist_flex": (4, "sts3215"),
-            "wrist_roll": (5, "sts3215"),
-            "gripper": (6, "sts3215"),
-        }
+        norm_mode_body = MotorNormMode.RANGE_M100_100
+        calibration_dir = Path(substitute_path_variables(self.config["calibration_dir"]))
+        self.calibration: dict[str, MotorCalibration] = self._load_calibration(calibration_dir)
+        self.bus = FeetechMotorsBus(
+            port=self.config["device"],
+            motors={
+                "shoulder_pan": Motor(1, "sts3215", norm_mode_body),
+                "shoulder_lift": Motor(2, "sts3215", norm_mode_body),
+                "elbow_flex": Motor(3, "sts3215", norm_mode_body),
+                "wrist_flex": Motor(4, "sts3215", norm_mode_body),
+                "wrist_roll": Motor(5, "sts3215", norm_mode_body),
+                "gripper": Motor(6, "sts3215", MotorNormMode.RANGE_0_100),
+            },
+            calibration=self.calibration,
+        )
+        self._cameras = self.make_cameras_from_configs(config.cameras)
 
-        # TODO is leader_arms"]["main"] correct or should I iterate because there can be many?
-        self.leader_arms = self.make_motors_buses_from_configs(self.config["leader_arms"])
-        self.follower_arms = self.make_motors_buses_from_configs(self.config["follower_arms"])
-        self.cameras = self.make_cameras_from_configs(self.config["cameras"])
+    def _load_calibration(self, fpath: Path) -> None:
+        if not fpath.exists():
+            return {}
 
-        self.calibration_dir = Path(substitute_path_variables(self.config["calibration_dir"]))
-        self.is_connected = False
-        self.logs = {}
+        with open(fpath) as f:
+            raw_calibration = json.load(f)
+            self.calibration = {
+                motor_name: MotorCalibration(
+                    id=cal["id"],
+                    drive_mode=cal["drive_mode"],
+                    homing_offset=cal["homing_offset"],
+                    range_min=cal["range_min"],
+                    range_max=cal["range_max"],
+                )
+                for motor_name, cal in raw_calibration.items()
+            }
 
-        # TODO: Add this inside this class (not the config)
-        # `max_relative_target` limits the magnitude of the relative positional target vector for safety purposes.
-        # Set this to a positive scalar to have the same value for all motors, or a list that is the same length as
-        # the number of motors in your follower arms.
-        self.max_relative_target: int | None = None
+    def _save_calibration(self, fpath: Path) -> None:
+        with open(fpath, "w") as f:
+            calibration_dict = {
+                motor_name: {
+                    "id": cal.id,
+                    "drive_mode": cal.drive_mode,
+                    "homing_offset": cal.homing_offset,
+                    "range_min": cal.range_min,
+                    "range_max": cal.range_max,
+                }
+                for motor_name, cal in self.calibration.items()
+            }
+            json.dump(calibration_dict, f, indent=4)
+
+    def calibrate(self) -> None:
+        logging.info(f"\nRunning calibration of {self}")
+        self.bus.disable_torque()
+        for motor in self.bus.motors:
+            self.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
+
+        logging.info(
+            "Calibration guide: https://github.com/huggingface/lerobot/blob/main/lerobot/common/robots/so100_follower/so100.mdx#calibrate"
+        )
+        logging.info("Calibration video: https://huggingface.co/docs/lerobot/en/so101#calibration-video")
+        input(f"Move {self} to the middle of its range of motion and press ENTER....")
+        homing_offsets = self.bus.set_half_turn_homings()
+
+        full_turn_motor = "wrist_roll"
+        unknown_range_motors = [motor for motor in self.bus.motors if motor != full_turn_motor]
+        print(
+            f"Move all joints except '{full_turn_motor}' sequentially through their "
+            "entire ranges of motion.\nRecording positions. Press ENTER to stop..."
+        )
+        range_mins, range_maxes = self.bus.record_ranges_of_motion(unknown_range_motors)
+        range_mins[full_turn_motor] = 0
+        range_maxes[full_turn_motor] = 4095
+
+        self.calibration = {}
+        for motor, m in self.bus.motors.items():
+            self.calibration[motor] = MotorCalibration(
+                id=m.id,
+                drive_mode=0,
+                homing_offset=homing_offsets[motor],
+                range_min=range_mins[motor],
+                range_max=range_maxes[motor],
+            )
+
+        self.bus.write_calibration(self.calibration)
+        self._save_calibration()
+        print("Calibration saved to", self.calibration_fpath)
+
+    @property
+    def is_connected(self) -> bool:
+        return self.bus.is_connected and all(cam.is_connected for cam in self._cameras.values())
 
     @property
     def type(self):
@@ -47,18 +110,23 @@ class SO100Robot(Robot):
 
     @property
     def num_cameras(self):
-        return len(self.cameras)
+        return len(self._cameras)
 
     @property
     def cameras(self) -> dict[str, Camera]:
-        return self.cameras
+        return self._cameras
 
-    def make_motors_buses_from_configs(self, arms_config):
-        motors_buses = {}
-        for arm_name, data in arms_config.items():
-            motors_buses[arm_name] = FeetechMotorsBus(self.motors_bus_configs, data["device"])
+    @property
+    def _motors_ft(self) -> dict[str, type]:
+        return {f"{motor}.pos": float for motor in self.bus.motors}
 
-        return motors_buses
+    @cached_property
+    def action_features(self) -> dict[str, type]:
+        return self._motors_ft
+
+    @property
+    def is_calibrated(self) -> bool:
+        return self.bus.is_calibrated
 
     def make_cameras_from_configs(self, config):
         cameras = {}
@@ -78,205 +146,186 @@ class SO100Robot(Robot):
 
         return cameras
 
-    def set_robot_preset(self):
-        for name in self.follower_arms:
-            # Mode=0 for Position Control
-            self.follower_arms[name].write("Mode", 0)
-            # Set P_Coefficient to lower value to avoid shakiness (Default is 32)
-            self.follower_arms[name].write("P_Coefficient", 16)
-            # Set I_Coefficient and D_Coefficient to default value 0 and 32
-            self.follower_arms[name].write("I_Coefficient", 0)
-            self.follower_arms[name].write("D_Coefficient", 4)
-            # Close the write lock so that Maximum_Acceleration gets written to EPROM address,
-            # which is mandatory for Maximum_Acceleration to take effect after rebooting.
-            self.follower_arms[name].write("Lock", 0)
-            # Set Maximum_Acceleration to 254 to speedup acceleration and deceleration of
-            # the motors. Note: this configuration is not in the official STS3215 Memory Table
-            self.follower_arms[name].write("Maximum_Acceleration", 254)
-            self.follower_arms[name].write("Acceleration", 254)
+    def configure(self) -> None:
+        with self.bus.torque_disabled():
+            self.bus.configure_motors()
+            for motor in self.bus.motors:
+                self.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
+                # Set P_Coefficient to lower value to avoid shakiness (Default is 32)
+                self.bus.write("P_Coefficient", motor, 16)
+                # Set I_Coefficient and D_Coefficient to default value 0 and 32
+                self.bus.write("I_Coefficient", motor, 0)
+                self.bus.write("D_Coefficient", motor, 4)
 
-    def activate_calibration(self):
-        """After calibration all motors function in human interpretable ranges.
-        Rotations are expressed in degrees in nominal range of [-180, 180].
-        """
-
-        def load_calibration_(name, arm_type):
-            # TODO: Calibration can be run here but we throw an error for matter of simplicity
-            arm_id = get_arm_id(name, arm_type)
-            arm_calib_path = self.calibration_dir / f"{arm_id}.json"
-
-            if not arm_calib_path.exists():
-                raise FileNotFoundError(f"Calibration file '{arm_calib_path}' not found. Please run calibration first")
-
-            with open(arm_calib_path) as f:
-                calibration = json.load(f)
-
-            return calibration
-
-        for name, arm in self.follower_arms.items():
-            calibration = load_calibration_(name, "follower")
-            arm.set_calibration(calibration)
-        for name, arm in self.leader_arms.items():
-            calibration = load_calibration_(name, "leader")
-            arm.set_calibration(calibration)
-
-    def connect(self):
+    def connect(self, calibrate: bool = True):
         if self.is_connected:
-            raise RobotDeviceAlreadyConnectedError(
-                "ManipulatorRobot is already connected. Do not run `robot.connect()` twice."
-            )
+            raise DeviceAlreadyConnectedError(f"{self} already connected")
 
-        if not self.leader_arms and not self.follower_arms and not self.cameras:
-            raise ValueError(
-                "ManipulatorRobot doesn't have any device to connect. See example of usage in docstring of the class."
-            )
-
-        # Connect the arms
-        for name in self.follower_arms:
-            print(f"Connecting {name} follower arm.")
-            self.follower_arms[name].connect()
-        for name in self.leader_arms:
-            print(f"Connecting {name} leader arm.")
-            self.leader_arms[name].connect()
-
-        # We assume that at connection time, arms are in a rest position, and torque can
-        # be safely disabled to run calibration and/or set robot preset configurations.
-        for name in self.follower_arms:
-            self.follower_arms[name].write("Torque_Enable", FeetechTorqueMode.DISABLED.value)
-        for name in self.leader_arms:
-            self.leader_arms[name].write("Torque_Enable", FeetechTorqueMode.DISABLED.value)
-
-        self.activate_calibration()
-        self.set_robot_preset()
-
-        # Enable torque on all motors of the follower arms
-        for name in self.follower_arms:
-            print(f"Activating torque on {name} follower arm.")
-            self.follower_arms[name].write("Torque_Enable", 1)
-
-        # Check all arms can be read
-        for name in self.follower_arms:
-            self.follower_arms[name].read("Present_Position")
-        for name in self.leader_arms:
-            self.leader_arms[name].read("Present_Position")
+        self.bus.connect()
+        if not self.is_calibrated and calibrate:
+            self.calibrate()
 
         # Connect the cameras
         unavailable_cameras = []
-        for name in self.cameras:
+        for cam_name in self._cameras.values():
             try:
-                self.cameras[name].connect()
+                self._cameras[cam_name].connect()
             except Exception as e:
-                print(f"Failed to connect camera {name}: {e}")
-                unavailable_cameras.append(name)
+                print(f"Failed to connect camera {cam_name}: {e}")
+                unavailable_cameras.append(cam_name)
                 continue
 
         # Remove the camera from the list of cameras
         for name in unavailable_cameras:
-            del self.cameras[name]
+            del self._cameras[name]
 
-        logging.info(f"Connected {len(self.cameras)} cameras: {list(self.cameras.keys())}")
-        self.is_connected = True
+        self.configure()
+        logging.info(f"{self} connected with {len(self._cameras)} cameras: {list(self._cameras.keys())}")
 
     def disconnect(self):
         if not self.is_connected:
-            raise RobotDeviceNotConnectedError("ManipulatorRobot is not connected. You need to run `robot.connect()`.")
-        for name in self.follower_arms:
-            self.follower_arms[name].disconnect()
-        for name in self.leader_arms:
-            self.leader_arms[name].disconnect()
-        for name in self.cameras:
-            self.cameras[name].disconnect()
+            raise DeviceNotConnectedError(f"{self} is not connected.")
 
-        self.is_connected = False
+        self.bus.disconnect(self.config.disable_torque_on_disconnect)
+        for cam in self.cameras.values():
+            cam.disconnect()
+
+        logging.info(f"{self} disconnected.")
+
+    def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
+        """Command arm to move to a target joint configuration.
+
+        The relative action magnitude may be clipped depending on the configuration parameter
+        `max_relative_target`. In this case, the action sent differs from original action.
+        Thus, this function always returns the action actually sent.
+
+        Raises:
+            RobotDeviceNotConnectedError: if robot is not connected.
+
+        Returns:
+            the action sent to the motors, potentially clipped.
+        """
+        if not self.is_connected:
+            raise DeviceNotConnectedError(f"{self} is not connected.")
+
+        goal_pos = {key.removesuffix(".pos"): val for key, val in action.items() if key.endswith(".pos")}
+
+        # Cap goal position when too far away from present position.
+        # /!\ Slower fps expected due to reading from the follower.
+        if self.config.max_relative_target is not None:
+            present_pos = self.bus.sync_read("Present_Position")
+            goal_present_pos = {key: (g_pos, present_pos[key]) for key, g_pos in goal_pos.items()}
+            goal_pos = self._ensure_safe_goal_position(goal_present_pos, self.config.max_relative_target)
+
+        # Send goal position to the arm
+        self.bus.sync_write("Goal_Position", goal_pos)
+        return {f"{motor}.pos": val for motor, val in goal_pos.items()}
 
     def _ensure_safe_goal_position(
-        goal_pos: torch.Tensor, present_pos: torch.Tensor, max_relative_target: float | list[float]
-    ):
-        # Cap relative action target magnitude for safety.
-        diff = goal_pos - present_pos
-        max_relative_target = torch.tensor(max_relative_target)
-        safe_diff = torch.minimum(diff, max_relative_target)
-        safe_diff = torch.maximum(safe_diff, -max_relative_target)
-        safe_goal_pos = present_pos + safe_diff
+        self, goal_present_pos: dict[str, tuple[float, float]], max_relative_target: float | dict[float]
+    ) -> dict[str, float]:
+        """Caps relative action target magnitude for safety."""
 
-        if not torch.allclose(goal_pos, safe_goal_pos):
+        if isinstance(max_relative_target, float):
+            diff_cap = dict.fromkeys(goal_present_pos, max_relative_target)
+        elif isinstance(max_relative_target, dict):
+            if not set(goal_present_pos) == set(max_relative_target):
+                raise ValueError("max_relative_target keys must match those of goal_present_pos.")
+            diff_cap = max_relative_target
+        else:
+            raise TypeError(max_relative_target)
+
+        warnings_dict = {}
+        safe_goal_positions = {}
+        for key, (goal_pos, present_pos) in goal_present_pos.items():
+            diff = goal_pos - present_pos
+            max_diff = diff_cap[key]
+            safe_diff = min(diff, max_diff)
+            safe_diff = max(safe_diff, -max_diff)
+            safe_goal_pos = present_pos + safe_diff
+            safe_goal_positions[key] = safe_goal_pos
+            if abs(safe_goal_pos - goal_pos) > 1e-4:
+                warnings_dict[key] = {
+                    "original goal_pos": goal_pos,
+                    "safe goal_pos": safe_goal_pos,
+                }
+
+        if warnings_dict:
             logging.warning(
-                "Relative goal position magnitude had to be clamped to be safe.\n"
-                f"  requested relative goal position target: {diff}\n"
-                f"    clamped relative goal position target: {safe_diff}"
+                f"Relative goal position magnitude had to be clamped to be safe.\n{pformat(warnings_dict, indent=4)}"
             )
 
-        return safe_goal_pos
+        return safe_goal_positions
 
-    def teleop_step(self) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
-        if not self.is_connected:
-            raise RobotDeviceNotConnectedError("ManipulatorRobot is not connected. You need to run `robot.connect()`.")
-        leader_pos = {}
+    # def teleop_step(self) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+    #     if not self.is_connected:
+    #         raise RobotDeviceNotConnectedError("ManipulatorRobot is not connected. You need to run `robot.connect()`.")
+    #     leader_pos = {}
 
-        # Prepare to assign the position of the leader to the follower
-        for name in self.leader_arms:
-            before_lread_t = time.perf_counter()
-            leader_pos[name] = self.leader_arms[name].read("Present_Position")
-            leader_pos[name] = torch.from_numpy(leader_pos[name])
-            self.logs[f"read_leader_{name}_pos_dt_s"] = time.perf_counter() - before_lread_t
+    #     # Prepare to assign the position of the leader to the follower
+    #     for name in self.leader_arms:
+    #         before_lread_t = time.perf_counter()
+    #         leader_pos[name] = self.leader_arms[name].read("Present_Position")
+    #         leader_pos[name] = torch.from_numpy(leader_pos[name])
+    #         self.logs[f"read_leader_{name}_pos_dt_s"] = time.perf_counter() - before_lread_t
 
-        # Send goal position to the follower
-        follower_goal_pos = {}
-        for name in self.follower_arms:
-            before_fwrite_t = time.perf_counter()
-            goal_pos = leader_pos[name]
+    #     # Send goal position to the follower
+    #     follower_goal_pos = {}
+    #     for name in self.follower_arms:
+    #         before_fwrite_t = time.perf_counter()
+    #         goal_pos = leader_pos[name]
 
-            # Cap goal position when too far away from present position.
-            # Slower fps expected due to reading from the follower.
-            if self.max_relative_target is not None:
-                present_pos = self.follower_arms[name].read("Present_Position")
-                present_pos = torch.from_numpy(present_pos)
-                goal_pos = self._ensure_safe_goal_position(goal_pos, present_pos, self.config.max_relative_target)
+    #         # Cap goal position when too far away from present position.
+    #         # Slower fps expected due to reading from the follower.
+    #         if self.max_relative_target is not None:
+    #             present_pos = self.follower_arms[name].read("Present_Position")
+    #             present_pos = torch.from_numpy(present_pos)
+    #             goal_pos = self._ensure_safe_goal_position(goal_pos, present_pos, self.config.max_relative_target)
 
-            # Used when record_data=True
-            follower_goal_pos[name] = goal_pos
+    #         # Used when record_data=True
+    #         follower_goal_pos[name] = goal_pos
 
-            goal_pos = goal_pos.numpy().astype(np.float32)
-            self.follower_arms[name].write("Goal_Position", goal_pos)
-            self.logs[f"write_follower_{name}_goal_pos_dt_s"] = time.perf_counter() - before_fwrite_t
+    #         goal_pos = goal_pos.numpy().astype(np.float32)
+    #         self.follower_arms[name].write("Goal_Position", goal_pos)
+    #         self.logs[f"write_follower_{name}_goal_pos_dt_s"] = time.perf_counter() - before_fwrite_t
 
-        # TODO: Add velocity and other info
-        # Read follower position
-        follower_pos = {}
-        for name in self.follower_arms:
-            before_fread_t = time.perf_counter()
-            follower_pos[name] = self.follower_arms[name].read("Present_Position")
-            follower_pos[name] = torch.from_numpy(follower_pos[name])
-            self.logs[f"read_follower_{name}_pos_dt_s"] = time.perf_counter() - before_fread_t
+    #     # TODO: Add velocity and other info
+    #     # Read follower position
+    #     follower_pos = {}
+    #     for name in self.follower_arms:
+    #         before_fread_t = time.perf_counter()
+    #         follower_pos[name] = self.follower_arms[name].read("Present_Position")
+    #         follower_pos[name] = torch.from_numpy(follower_pos[name])
+    #         self.logs[f"read_follower_{name}_pos_dt_s"] = time.perf_counter() - before_fread_t
 
-        # Create state by concatenating follower current position
-        state = []
-        for name in self.follower_arms:
-            if name in follower_pos:
-                state.append(follower_pos[name])
-        state = torch.cat(state)
+    #     # Create state by concatenating follower current position
+    #     state = []
+    #     for name in self.follower_arms:
+    #         if name in follower_pos:
+    #             state.append(follower_pos[name])
+    #     state = torch.cat(state)
 
-        # Create action by concatenating follower goal position
-        action = []
-        for name in self.follower_arms:
-            if name in follower_goal_pos:
-                action.append(follower_goal_pos[name])
-        action = torch.cat(action)
+    #     # Create action by concatenating follower goal position
+    #     action = []
+    #     for name in self.follower_arms:
+    #         if name in follower_goal_pos:
+    #             action.append(follower_goal_pos[name])
+    #     action = torch.cat(action)
 
-        # Capture images from cameras
-        images = {}
-        for name in self.cameras:
-            before_camread_t = time.perf_counter()
-            images[name] = self.cameras[name].async_read()
-            images[name] = torch.from_numpy(images[name])
-            self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
-            self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
+    #     # Capture images from cameras
+    #     images = {}
+    #     for name in self._cameras:
+    #         before_camread_t = time.perf_counter()
+    #         images[name] = self._cameras[name].async_read()
+    #         images[name] = torch.from_numpy(images[name])
+    #         self.logs[f"read_camera_{name}_dt_s"] = self._cameras[name].logs["delta_timestamp_s"]
+    #         self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
 
-        # Populate output dictionaries
-        obs_dict, action_dict = {}, {}
-        obs_dict["observation.state"] = state
-        action_dict["action"] = action
-        for name in self.cameras:
-            obs_dict[f"observation.images.{name}"] = images[name]
+    #     # Populate output dictionaries
+    #     obs_dict, action_dict = {}, {}
+    #     obs_dict["observation.state"] = state
+    #     action_dict["action"] = action
+    #     for name in self._cameras:
+    #         obs_dict[f"observation.images.{name}"] = images[name]
 
-        return obs_dict, action_dict
+    #     return obs_dict, action_dict

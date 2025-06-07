@@ -1,4 +1,4 @@
-from tuatini.motors.feetch import SCS_SERIES_CONTROL_TABLE, FeetechMotorsBus
+from tuatini.motors.feetech import SCS_SERIES_CONTROL_TABLE, FeetechMotorsBus
 
 
 def test_feetch_motor_buses_read():
