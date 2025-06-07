@@ -1,0 +1,55 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Lerobot: Record dataset",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "lerobot.record",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PIXI_ENV": "1",
+                "DISPLAY": "",
+                "HF_USER": "Ekami"
+            },
+            "args": [
+                "--robot.type=so100_follower",
+                "--robot.port=/dev/ttyACM1",
+                "--robot.id=my_awesome_follower_arm",
+                "--robot.cameras={\"front\": {\"type\": \"opencv\", \"index_or_path\": 0, \"width\": 1920, \"height\": 1080, \"fps\": 30}}",
+                "--teleop.type=so100_leader",
+                "--teleop.port=/dev/ttyACM0",
+                "--teleop.id=my_awesome_leader_arm",
+                "--display_data=true",
+                "--dataset.repo_id=${HF_USER}/record-test",
+                "--dataset.num_episodes=2",
+                "--dataset.single_task=\"Grab the white brick\""
+            ]
+        },
+        {
+            "name": "Lerobot: Teleoperate",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "lerobot.teleoperate",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PIXI_ENV": "1",
+                "DISPLAY": ""
+            },
+            "args": [
+                "--robot.type=so100",
+                "--robot.port=/dev/ttyACM1",
+                "--robot.id=my_awesome_follower_arm",
+                "--robot.cameras={\"front\": {\"type\": \"opencv\", \"index_or_path\": 0, \"width\": 1920, \"height\": 1080, \"fps\": 30}}",
+                "--teleop.type=koch_leader",
+                "--teleop.port=/dev/ttyACM0",
+                "--teleop.id=my_awesome_leader_arm",
+                "--display_data=true"
+            ]
+        }
+    ]
+}
