@@ -874,7 +874,7 @@ class MotorsBus(abc.ABC):
         """
         id_ = self._get_motor_id(motor)
         for n_try in range(1 + num_retry):
-            model_number, comm, error = self.packet_handler.ping(self.port_handler, id_)
+            model_number, comm, error = self.packet_handler.ping(id_)
             if self._is_comm_success(comm):
                 break
             logger.debug(f"ping failed for {id_=}: {n_try=} got {comm=} {error=}")
@@ -965,7 +965,7 @@ class MotorsBus(abc.ABC):
             raise ValueError(length)
 
         for n_try in range(1 + num_retry):
-            value, comm, error = read_fn(self.port_handler, motor_id, address)
+            value, comm, error = read_fn(motor_id, address)
             if self._is_comm_success(comm):
                 break
             logger.debug(
@@ -1028,7 +1028,7 @@ class MotorsBus(abc.ABC):
         for n_try in range(1 + num_retry):
             if addr == 11 and data == [255, 255]:
                 pass
-            comm, error = self.packet_handler.writeTxRx(self.port_handler, motor_id, addr, length, data)
+            comm, error = self.packet_handler.writeTxRx(motor_id, addr, length, data)
             if self._is_comm_success(comm):
                 break
             logger.debug(
