@@ -266,6 +266,27 @@ class FeetechMotorsBus:
                 "\nTry running `python lerobot/find_port.py`\n"
             ) from e
 
+    def disconnect(self, disable_torque: bool = True) -> None:
+        """Close the serial port (optionally disabling torque first).
+
+        Args:
+            disable_torque (bool, optional): If `True` (default) torque is disabled on every motor before
+                closing the port. This can prevent damaging motors if they are left applying resisting torque
+                after disconnect.
+        """
+        if not self.is_connected:
+            raise DeviceNotConnectedError(
+                f"{self.__class__.__name__}('{self.port}') is not connected. Try running `{self.__class__.__name__}.connect()` first."
+            )
+
+        if disable_torque:
+            self.port_handler.clearPort()
+            self.port_handler.is_using = False
+            self.disable_torque(num_retry=5)
+
+        self.port_handler.closePort()
+        logging.debug(f"{self.__class__.__name__} disconnected.")
+
     def set_timeout(self, timeout_ms: int | None = None):
         """Change the packet timeout used by the SDK.
 
@@ -526,9 +547,9 @@ class FeetechMotorsBus:
     def write_calibration(self, calibration_dict: dict[str, MotorCalibration]) -> None:
         for motor, calibration in calibration_dict.items():
             if self.protocol_version == 0:
-                self.write("Homing_Offset", motor, calibration.homing_offset)
-            self.write("Min_Position_Limit", motor, calibration.range_min)
-            self.write("Max_Position_Limit", motor, calibration.range_max)
+                self.write_register("Homing_Offset", motor, calibration.homing_offset)
+            self.write_register("Min_Position_Limit", motor, calibration.range_min)
+            self.write_register("Max_Position_Limit", motor, calibration.range_max)
 
         self.calibration = calibration_dict
 

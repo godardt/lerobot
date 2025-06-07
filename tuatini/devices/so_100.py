@@ -13,11 +13,11 @@ from tuatini.utils.io import substitute_path_variables
 
 
 class SO100Robot(Robot):
-    def __init__(self, device, calibration_dir, cameras=None, name="SO-100"):
+    def __init__(self, device, calibration_fpath, cameras=None, name="SO-100"):
         self.name = name
         norm_mode_body = MotorNormMode.RANGE_M100_100
-        calibration_dir = Path(substitute_path_variables(calibration_dir))
-        self.calibration: dict[str, MotorCalibration] = self._load_calibration(calibration_dir)
+        self.calibration_fpath = Path(substitute_path_variables(calibration_fpath))
+        self.calibration: dict[str, MotorCalibration] = self._load_calibration()
         self.bus = FeetechMotorsBus(
             port=device,
             motors={
@@ -32,11 +32,11 @@ class SO100Robot(Robot):
         )
         self._cameras = cameras if cameras else {}
 
-    def _load_calibration(self, fpath: Path) -> None:
-        if not fpath.exists():
+    def _load_calibration(self) -> None:
+        if not self.calibration_fpath.exists():
             return {}
 
-        with open(fpath) as f:
+        with open(self.calibration_fpath) as f:
             raw_calibration = json.load(f)
             self.calibration = {
                 motor_name: MotorCalibration(
@@ -49,8 +49,8 @@ class SO100Robot(Robot):
                 for motor_name, cal in raw_calibration.items()
             }
 
-    def _save_calibration(self, fpath: Path) -> None:
-        with open(fpath, "w") as f:
+    def _save_calibration(self) -> None:
+        with open(self.calibration_fpath, "w") as f:
             calibration_dict = {
                 motor_name: {
                     "id": cal.id,
@@ -171,7 +171,7 @@ class SO100Robot(Robot):
         if not self.is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected.")
 
-        self.bus.disconnect(self.config.disable_torque_on_disconnect)
+        self.bus.disconnect(disable_torque=True)
         for cam in self.cameras.values():
             cam.disconnect()
 
