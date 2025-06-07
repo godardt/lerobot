@@ -23,6 +23,7 @@
                 "--teleop.port=/dev/ttyACM0",
                 "--teleop.id=my_awesome_leader_arm",
                 "--display_data=true",
+                "--dataset.root=${command:lerobot.createTmpFolder}",
                 "--dataset.repo_id=${HF_USER}/record-test",
                 "--dataset.num_episodes=2",
                 "--dataset.single_task=\"Grab the white brick\""
@@ -41,11 +42,11 @@
                 "DISPLAY": ""
             },
             "args": [
-                "--robot.type=so100",
+                "--robot.type=so100_follower",
                 "--robot.port=/dev/ttyACM1",
                 "--robot.id=my_awesome_follower_arm",
                 "--robot.cameras={\"front\": {\"type\": \"opencv\", \"index_or_path\": 0, \"width\": 1920, \"height\": 1080, \"fps\": 30}}",
-                "--teleop.type=koch_leader",
+                "--teleop.type=so100_leader",
                 "--teleop.port=/dev/ttyACM0",
                 "--teleop.id=my_awesome_leader_arm",
                 "--display_data=true"

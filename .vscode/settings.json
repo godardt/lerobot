@@ -15,5 +15,12 @@
     "tuatini"
   ],
   "python.testing.unittestEnabled": false,
-  "python.testing.pytestEnabled": true
+  "python.testing.pytestEnabled": true,
+  // Command Variable extension settings for creating a unique tmp folder
+  "command-variable.commands": {
+    "lerobot.createTmpFolder": {
+      "command": "mktemp -d",
+      "type": "shell"
+    }
+  }
 }
