@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from functools import cached_property
 from pathlib import Path
 from pprint import pformat
@@ -8,13 +9,14 @@ from typing import Any
 from tuatini.devices.camera import Camera
 from tuatini.devices.robots import Motor, MotorCalibration, MotorNormMode, Robot
 from tuatini.motors.feetech import FeetechMotorsBus, OperatingMode
-from tuatini.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
+from tuatini.utils.errors import DeviceAlreadyConnectedError, DeviceNotCalibratedError, DeviceNotConnectedError
 from tuatini.utils.io import substitute_path_variables
 
 
 class SO100Robot(Robot):
-    def __init__(self, device, calibration_fpath, cameras=None, name="SO-100"):
+    def __init__(self, device, calibration_fpath, cameras=None, name="SO-100", is_follower_robot=True):
         self.name = name
+        self.is_follower_robot = is_follower_robot
         norm_mode_body = MotorNormMode.RANGE_M100_100
         self.calibration_fpath = Path(substitute_path_variables(calibration_fpath))
         self.calibration: dict[str, MotorCalibration] = self._load_calibration()
@@ -38,7 +40,7 @@ class SO100Robot(Robot):
 
         with open(self.calibration_fpath) as f:
             raw_calibration = json.load(f)
-            self.calibration = {
+            calibration = {
                 motor_name: MotorCalibration(
                     id=cal["id"],
                     drive_mode=cal["drive_mode"],
@@ -48,6 +50,7 @@ class SO100Robot(Robot):
                 )
                 for motor_name, cal in raw_calibration.items()
             }
+        return calibration
 
     def _save_calibration(self) -> None:
         with open(self.calibration_fpath, "w") as f:
@@ -136,19 +139,20 @@ class SO100Robot(Robot):
             self.bus.configure_motors()
             for motor in self.bus.motors:
                 self.bus.write_register("Operating_Mode", motor, OperatingMode.POSITION.value)
-                # Set P_Coefficient to lower value to avoid shakiness (Default is 32)
-                self.bus.write_register("P_Coefficient", motor, 16)
-                # Set I_Coefficient and D_Coefficient to default value 0 and 32
-                self.bus.write_register("I_Coefficient", motor, 0)
-                self.bus.write_register("D_Coefficient", motor, 4)
+                if self.is_follower_robot:
+                    # Set P_Coefficient to lower value to avoid shakiness (Default is 32)
+                    self.bus.write_register("P_Coefficient", motor, 16)
+                    # Set I_Coefficient and D_Coefficient to default value 0 and 32
+                    self.bus.write_register("I_Coefficient", motor, 0)
+                    self.bus.write_register("D_Coefficient", motor, 4)
 
-    def connect(self, calibrate: bool = True):
+    def connect(self, calibrated: bool = True):
         if self.is_connected:
             raise DeviceAlreadyConnectedError(f"{self} already connected")
 
         self.bus.connect()
-        if not self.is_calibrated and calibrate:
-            self.calibrate()
+        if not self.is_calibrated and calibrated:
+            raise DeviceNotCalibratedError(f"{self} is not calibrated")
 
         # Connect the cameras
         unavailable_cameras = []
@@ -176,6 +180,14 @@ class SO100Robot(Robot):
             cam.disconnect()
 
         logging.info(f"{self} disconnected.")
+
+    def get_action(self) -> dict[str, float]:
+        start = time.perf_counter()
+        action = self.bus.sync_read("Present_Position")
+        action = {f"{motor}.pos": val for motor, val in action.items()}
+        dt_ms = (time.perf_counter() - start) * 1e3
+        logging.debug(f"{self} read action: {dt_ms:.1f}ms")
+        return action
 
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
         """Command arm to move to a target joint configuration.

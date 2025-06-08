@@ -25,7 +25,7 @@ def main(config):
             device = arm_config["device"]
             calibration_dir = arm_config["calibration_dir"]
             robot = SO100Robot(device, calibration_dir, name=f"{robot_type}/{arm_name}")
-            robot.connect(calibrate=False)
+            robot.connect(calibrated=False)
             robot.calibrate()
             robot.disconnect()
 
