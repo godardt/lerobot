@@ -81,7 +81,7 @@ class LeRobotDatasetMetadata:
 
         features = self.get_features_from_robot()
         robot_type = self.robot.type
-        if not all(cam.fps == fps for cam in self.robot.cameras.values()):
+        if not all(cam.capture_fps == fps for cam in self.robot.cameras.values()):
             logging.warning(
                 f"Some cameras in your {robot.robot_type} robot don't have an fps matching the fps of your dataset."
                 "In this case, frames from lower fps cameras will be repeated to fill in the blanks."
@@ -90,7 +90,7 @@ class LeRobotDatasetMetadata:
         self.tasks, self.task_to_task_index = {}, {}
         self.episodes_stats, self.stats, self.episodes = {}, {}, {}
         info = create_empty_dataset_info(CODEBASE_VERSION, fps, robot_type, features)
-        fpath = root / INFO_PATH
+        fpath = self.root / INFO_PATH
         fpath.parent.mkdir(exist_ok=True, parents=True)
         with open(fpath, "w") as f:
             json.dump(info, f, indent=4, ensure_ascii=False)

@@ -25,6 +25,12 @@ class Camera(Protocol):
     def async_read(self): ...
     def __enter__(self): ...
     def __exit__(self, exc_type, exc_val, exc_tb): ...
+    @property
+    def capture_width(self) -> int: ...
+    @property
+    def capture_height(self) -> int: ...
+    @property
+    def capture_fps(self) -> int: ...
 
 
 class OpenCVCamera(Camera):
@@ -37,9 +43,9 @@ class OpenCVCamera(Camera):
         except ValueError:
             self.camera_index = device  # Use as string path, e.g., /dev/video0
 
-        self.capture_fps = capture_fps
-        self.capture_width = capture_width
-        self.capture_height = capture_height
+        self._capture_fps = capture_fps
+        self._capture_width = capture_width
+        self._capture_height = capture_height
         self.rotation_code = None  # OpenCV rotation code
         self.color_mode = color_mode
 
@@ -100,42 +106,42 @@ class OpenCVCamera(Camera):
         logging.info(f"Successfully opened OpenCVCamera({self.camera_index}). Configuring...")
 
         try:
-            if self.capture_fps is not None:
-                self.camera.set(cv2.CAP_PROP_FPS, float(self.capture_fps))
-            if self.capture_width is not None:
-                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, float(self.capture_width))
-            if self.capture_height is not None:
-                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self.capture_height))
+            if self._capture_fps is not None:
+                self.camera.set(cv2.CAP_PROP_FPS, float(self._capture_fps))
+            if self._capture_width is not None:
+                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, float(self._capture_width))
+            if self._capture_height is not None:
+                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self._capture_height))
 
             # Verify settings
             actual_fps = self.camera.get(cv2.CAP_PROP_FPS)
             actual_width = self.camera.get(cv2.CAP_PROP_FRAME_WIDTH)
             actual_height = self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT)
 
-            logging.info(f"Requested: FPS={self.capture_fps}, W={self.capture_width}, H={self.capture_height}")
+            logging.info(f"Requested: FPS={self._capture_fps}, W={self._capture_width}, H={self._capture_height}")
             logging.info(f"Actual:    FPS={actual_fps}, W={actual_width}, H={actual_height}")
 
             # Using math.isclose since actual fps can be a float
-            if self.capture_fps is not None and not math.isclose(
-                self.capture_fps, actual_fps, rel_tol=0.1, abs_tol=1.0
+            if self._capture_fps is not None and not math.isclose(
+                self._capture_fps, actual_fps, rel_tol=0.1, abs_tol=1.0
             ):  # Relaxed tolerance for FPS
                 # It's common for cameras not to hit the exact FPS, so this might be too strict
                 logging.warning(
-                    f"Could not set exact FPS {self.capture_fps} for OpenCVCamera({self.camera_index}). Actual: {actual_fps}."
+                    f"Could not set exact FPS {self._capture_fps} for OpenCVCamera({self.camera_index}). Actual: {actual_fps}."
                 )
-            if self.capture_width is not None and int(actual_width) != int(self.capture_width):
+            if self._capture_width is not None and int(actual_width) != int(self._capture_width):
                 raise OSError(
-                    f"Can't set capture_width={self.capture_width} for OpenCVCamera({self.camera_index}). Actual: {actual_width}."
+                    f"Can't set capture_width={self._capture_width} for OpenCVCamera({self.camera_index}). Actual: {actual_width}."
                 )
-            if self.capture_height is not None and int(actual_height) != int(self.capture_height):
+            if self._capture_height is not None and int(actual_height) != int(self._capture_height):
                 raise OSError(
-                    f"Can't set capture_height={self.capture_height} for OpenCVCamera({self.camera_index}). Actual: {actual_height}."
+                    f"Can't set capture_height={self._capture_height} for OpenCVCamera({self.camera_index}). Actual: {actual_height}."
                 )
 
             # Update with actual values, rounded
-            self.capture_fps = round(actual_fps) if actual_fps else self.capture_fps
-            self.capture_width = round(actual_width) if actual_width else self.capture_width
-            self.capture_height = round(actual_height) if actual_height else self.capture_height
+            self._capture_fps = round(actual_fps) if actual_fps else self._capture_fps
+            self._capture_width = round(actual_width) if actual_width else self._capture_width
+            self._capture_height = round(actual_height) if actual_height else self._capture_height
 
             self.is_connected = True
             logging.info(f"OpenCVCamera({self.device_path}) connected successfully.")
@@ -202,10 +208,10 @@ class OpenCVCamera(Camera):
 
         h, w, _ = color_image.shape
         # Check against actual capture_height/width before rotation
-        # Note: self.capture_height/width are updated to actual values in connect()
-        if h != self.capture_height or w != self.capture_width:
+        # Note: self._capture_height/width are updated to actual values in connect()
+        if h != self._capture_height or w != self._capture_width:
             logging.warning(
-                f"Captured image dimensions ({h}x{w}) differ from expected ({self.capture_height}x{self.capture_width}) for {self.device_path}."
+                f"Captured image dimensions ({h}x{w}) differ from expected ({self._capture_height}x{self._capture_width}) for {self.device_path}."
             )
 
         if self.rotation_code is not None:
@@ -241,15 +247,15 @@ class OpenCVCamera(Camera):
         num_tries = 0
         while self.color_image is None:  # Wait for self.color_image to be populated by read_loop
             # Avoid division by zero if fps is 0 or None
-            time.sleep(1 / self.capture_fps if self.capture_fps > 0 else 0.01)
+            time.sleep(1 / self._capture_fps if self._capture_fps > 0 else 0.01)
             num_tries += 1
-            if self.capture_fps > 0 and num_tries > self.capture_fps * 2:  # Max 2 seconds worth of frames
+            if self._capture_fps > 0 and num_tries > self._capture_fps * 2:  # Max 2 seconds worth of frames
                 raise TimeoutError(
                     f"OpenCVCamera({self.camera_index}): Timed out waiting for async_read() to provide the first frame."
                 )
-            elif self.capture_fps <= 0 and num_tries > 200:  # Fallback for fps <= 0, approx 2 seconds if sleep is 0.01
+            elif self._capture_fps <= 0 and num_tries > 200:  # Fallback for fps <= 0, approx 2 seconds if sleep is 0.01
                 raise TimeoutError(
-                    f"OpenCVCamera({self.camera_index}): Timed out waiting for async_read() (fps={self.capture_fps})."
+                    f"OpenCVCamera({self.camera_index}): Timed out waiting for async_read() (fps={self._capture_fps})."
                 )
 
         return self.color_image
@@ -261,14 +267,26 @@ class OpenCVCamera(Camera):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.disconnect()
 
+    @property
+    def capture_width(self) -> int:
+        return self._capture_width
+
+    @property
+    def capture_height(self) -> int:
+        return self._capture_height
+
+    @property
+    def capture_fps(self) -> int:
+        return self._capture_fps
+
 
 class IPCamera(Camera):
     def __init__(self, ip, port, capture_fps, capture_width, capture_height, rotation, color_mode="rgb"):
         self.ip = ip
         self.port = port
-        self.capture_fps = capture_fps
-        self.capture_width = capture_width
-        self.capture_height = capture_height
+        self._capture_fps = capture_fps
+        self._capture_width = capture_width
+        self._capture_height = capture_height
         self.rotation = rotation  # Rotation for the OpenCVCamera reading the loopback
         self.color_mode = color_mode
         self.stream_process: multiprocessing.Process | None = None
@@ -472,9 +490,9 @@ class IPCamera(Camera):
         try:
             self.camera = OpenCVCamera(
                 self.output_device_path,
-                self.capture_fps,
-                self.capture_width,
-                self.capture_height,
+                self._capture_fps,
+                self._capture_width,
+                self._capture_height,
                 self.rotation,
                 color_mode=self.color_mode,
             )
@@ -550,10 +568,10 @@ class IPCamera(Camera):
                 ffmpeg_input = ffmpeg.input(video_url)
 
             stream_pipeline = ffmpeg_input
-            if self.capture_width is not None and self.capture_height is not None:
-                stream_pipeline = stream_pipeline.filter("scale", self.capture_width, self.capture_height)
-            if self.capture_fps is not None:
-                stream_pipeline = stream_pipeline.filter("fps", fps=self.capture_fps)
+            if self._capture_width is not None and self._capture_height is not None:
+                stream_pipeline = stream_pipeline.filter("scale", self._capture_width, self._capture_height)
+            if self._capture_fps is not None:
+                stream_pipeline = stream_pipeline.filter("fps", fps=self._capture_fps)
 
             stream_pipeline = stream_pipeline.output(loopback_device, format="v4l2", pix_fmt="yuyv422")
 
@@ -625,6 +643,18 @@ class IPCamera(Camera):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.disconnect()
+
+    @property
+    def capture_width(self) -> int:
+        return self.camera.capture_width
+
+    @property
+    def capture_height(self) -> int:
+        return self.camera.capture_height
+
+    @property
+    def capture_fps(self) -> int:
+        return self.camera.capture_fps
 
 
 def make_cameras_from_configs(cameras_config):

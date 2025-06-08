@@ -131,6 +131,14 @@ class SO100Robot(Robot):
         return self._motors_ft
 
     @property
+    def _cameras_ft(self) -> dict[str, tuple]:
+        return {cam: (self._cameras[cam].capture_height, self._cameras[cam].capture_width, 3) for cam in self._cameras}
+
+    @cached_property
+    def observation_features(self) -> dict[str, type]:
+        return {**self._motors_ft, **self._cameras_ft}
+
+    @property
     def is_calibrated(self) -> bool:
         return self.bus.is_calibrated
 
@@ -156,9 +164,9 @@ class SO100Robot(Robot):
 
         # Connect the cameras
         unavailable_cameras = []
-        for cam_name in self._cameras.values():
+        for cam_name, camera in self._cameras.items():
             try:
-                self._cameras[cam_name].connect()
+                camera.connect()
             except Exception as e:
                 print(f"Failed to connect camera {cam_name}: {e}")
                 unavailable_cameras.append(cam_name)
