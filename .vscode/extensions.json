@@ -4,7 +4,8 @@
     "ms-python.debugpy",
     "ms-python.isort",
     "charliermarsh.ruff",
-    "commandvariable.dateTime"
+    "commandvariable.dateTime",
+    "rioj7.commandvariable"
   ],
   "unwantedRecommendations": []
 }

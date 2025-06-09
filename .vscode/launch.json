@@ -12,18 +12,19 @@
             "env": {
                 "PIXI_ENV": "1",
                 "DISPLAY": "",
-                "HF_USER": "Ekami"
+                "HF_USER": "Ekami",
+                "LEROBOT_TMPDIR": "$(cat /tmp/lerobot_tmpdir_path)"
             },
             "args": [
                 "--robot.type=so100_follower",
                 "--robot.port=/dev/ttyACM1",
-                "--robot.id=my_awesome_follower_arm",
-                "--robot.cameras={\"front\": {\"type\": \"opencv\", \"index_or_path\": 0, \"width\": 1920, \"height\": 1080, \"fps\": 30}}",
+                "--robot.id=main_follower",
+                "--robot.cameras={\"wrist\": {\"type\": \"opencv\", \"index_or_path\": \"/dev/video5\", \"width\": 640, \"height\": 480, \"fps\": 30}}",
                 "--teleop.type=so100_leader",
                 "--teleop.port=/dev/ttyACM0",
-                "--teleop.id=my_awesome_leader_arm",
+                "--teleop.id=main_leader",
                 "--display_data=true",
-                "--dataset.root=${command:lerobot.createTmpFolder}",
+                "--dataset.root=/tmp/lerobot_dataset_${input:currentDate}",
                 "--dataset.repo_id=${HF_USER}/record-test",
                 "--dataset.num_episodes=2",
                 "--dataset.single_task=\"Grab the white brick\""
@@ -51,6 +52,27 @@
                 "--teleop.id=my_awesome_leader_arm",
                 "--display_data=true"
             ]
+        }
+    ],
+    "inputs": [
+        {
+            "id": "currentDate",
+            "type": "command",
+            "command": "extension.commandvariable.dateTime",
+            "args": {
+                "locale": "en-US",
+                "options": {
+                    "weekday": "long",
+                    "year": "numeric",
+                    "month": "2-digit",
+                    "day": "2-digit",
+                    "hour12": false,
+                    "hour": "2-digit",
+                    "minute": "2-digit",
+                    "second": "2-digit"
+                },
+                "template": "${weekday}__${year}${month}${day}T${hour}${minute}${second}"
+            }
         }
     ]
 }

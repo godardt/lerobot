@@ -18,10 +18,11 @@ from typing import Any
 
 import draccus
 
-from lerobot.common.constants import HF_LEROBOT_CALIBRATION, TELEOPERATORS
 from lerobot.common.motors.motors_bus import MotorCalibration
 
 from .config import TeleoperatorConfig
+
+root_dir = Path(__file__).parent.parent.parent.parent
 
 
 class Teleoperator(abc.ABC):
@@ -33,11 +34,7 @@ class Teleoperator(abc.ABC):
 
     def __init__(self, config: TeleoperatorConfig):
         self.id = config.id
-        self.calibration_dir = (
-            config.calibration_dir
-            if config.calibration_dir
-            else HF_LEROBOT_CALIBRATION / TELEOPERATORS / self.name
-        )
+        self.calibration_dir = root_dir / ".cache" / "calibration" / self.name
         self.calibration_dir.mkdir(parents=True, exist_ok=True)
         self.calibration_fpath = self.calibration_dir / f"{self.id}.json"
         self.calibration: dict[str, MotorCalibration] = {}
