@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).parent.parent.parent
@@ -12,4 +13,5 @@ def get_arm_id(name, arm_type):
 
 def substitute_path_variables(path):
     path = path.replace("$PROJECT_DIR", str(PROJECT_DIR))
+    path = path.replace("$DATETIME", datetime.now().strftime("%Y-%m-%d-%H%M%S"))
     return path

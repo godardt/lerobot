@@ -8,6 +8,7 @@ import yaml
 from tuatini.datasets.lerobot import LeRobotDataset
 from tuatini.devices.camera import make_cameras_from_configs
 from tuatini.devices.so_100 import SO100Robot
+from tuatini.utils.io import substitute_path_variables
 from tuatini.utils.logs import init_logging, init_rerun, log_control_info, log_rr_event
 from tuatini.utils.time import busy_wait
 
@@ -49,14 +50,15 @@ def _record_dataset(
     controller_device: SO100Robot,  # TODO Could also be a game controller or something else
     follower_robot: SO100Robot,
     dataset_recording_config: dict,
-    record_data=False,
     control_time_s=float("inf"),
     single_task: None | str = None,
 ):
     sanity_check_dataset_name(dataset_recording_config["repo_id"], dataset_recording_config.get("policy"))
+    datasets_dir = Path(substitute_path_variables(dataset_recording_config["to_dir"]))
     dataset = LeRobotDataset.create(
         dataset_recording_config["repo_id"],
         fps=dataset_recording_config["fps"],
+        root_dir=datasets_dir,
         robot=follower_robot,
         image_writer_processes=1,
         image_writer_threads=len(follower_robot.cameras),
@@ -127,7 +129,11 @@ def main(config):
     if len(follower_robots) == 0 or len(follower_robots) > 1:
         raise ValueError("You must provide exactly one follower robot")
 
-    _record_dataset(leader_robots[0], follower_robots[0], config.get("dataset_recording"), record_data=True)
+    dataset_rec_config = config.get("dataset_recording")
+    if dataset_rec_config is None:
+        raise ValueError("No dataset recording config found in the config file")
+
+    _record_dataset(leader_robots[0], follower_robots[0], dataset_rec_config)
     print("Shutting down...")
 
 

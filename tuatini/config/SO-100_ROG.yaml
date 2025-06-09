@@ -32,6 +32,7 @@ robots:
 
 dataset_recording:
   repo_id: Ekami/so100
+  to_dir: $PROJECT_DIR/.cache/dataset_recordings/$DATETIME
   fps: 30
   tags:
     - so100

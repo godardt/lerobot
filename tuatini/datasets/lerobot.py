@@ -70,14 +70,13 @@ class LeRobotDatasetMetadata:
         repo_id: str,
         robot: Robot,
         fps: int,
-        root: str | Path | None = None,
+        root_dir: str | Path,
         revision: str | None = None,
-        force_cache_sync: bool = False,
     ):
         self.repo_id = repo_id
         self.robot = robot
         self.revision = revision if revision else CODEBASE_VERSION
-        self.root = Path(root) if root is not None else HF_LEROBOT_HOME / repo_id
+        self.root = Path(root_dir) / repo_id
 
         features = self.get_features_from_robot()
         robot_type = self.robot.type
@@ -100,6 +99,11 @@ class LeRobotDatasetMetadata:
         obs_features = hw_to_dataset_features(self.robot.observation_features, "observation", use_video=use_videos)
         dataset_features = {**action_features, **obs_features}
         return dataset_features
+
+    @property
+    def total_episodes(self) -> int:
+        """Total number of episodes available."""
+        return self.info["total_episodes"]
 
     def save_episode(
         self,
@@ -361,7 +365,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         cls,
         repo_id: str,
         fps: int,
-        root: str | Path | None = None,
+        root_dir: str | Path,
         robot: Robot | None = None,
         tolerance_s: float = 1e-4,
         image_writer_processes: int = 0,
@@ -390,7 +394,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
             repo_id=repo_id,
             robot=robot,
             fps=fps,
-            root=root,
+            root_dir=root_dir,
         )
         obj.repo_id = obj.meta.repo_id
         obj.root = obj.meta.root
