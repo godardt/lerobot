@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Callable
 
 import datasets
+import jsonlines
+import numpy as np
 import packaging.version
 import torch
 
@@ -18,6 +20,8 @@ from tuatini.utils.datasets import (
     write_episode_stats,
     write_info,
 )
+from tuatini.utils.errors import V21_MESSAGE, BackwardCompatibilityError
+from tuatini.utils.helpers import flatten_dict, unflatten_dict
 from tuatini.utils.image_writer import AsyncImageWriter
 from tuatini.utils.time import check_delta_timestamps, check_timestamps_sync, get_delta_indices
 from tuatini.utils.video import get_safe_default_codec
@@ -35,11 +39,15 @@ HF_HOME = os.path.expandvars(
 )
 default_cache_path = Path(HF_HOME) / "lerobot"
 HF_LEROBOT_HOME = Path(os.getenv("HF_LEROBOT_HOME", default_cache_path)).expanduser()
+TASKS_PATH = "meta/tasks.jsonl"
 
 DEFAULT_CHUNK_SIZE = 1000  # Max number of episodes per chunk
 DEFAULT_VIDEO_PATH = "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4"
 DEFAULT_PARQUET_PATH = "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet"
 INFO_PATH = "meta/info.json"
+EPISODES_PATH = "meta/episodes.jsonl"
+EPISODES_STATS_PATH = "meta/episodes_stats.jsonl"
+STATS_PATH = "meta/stats.json"
 
 
 def create_empty_dataset_info(codebase_version: str, fps: int, robot_type: str, features: dict) -> dict:
@@ -61,10 +69,6 @@ def create_empty_dataset_info(codebase_version: str, fps: int, robot_type: str, 
 
 
 class LeRobotDatasetMetadata:
-    """
-    https://github.com/huggingface/lerobot?tab=readme-ov-file#the-lerobotdataset-format
-    """
-
     def __init__(
         self,
         repo_id: str,
@@ -88,11 +92,95 @@ class LeRobotDatasetMetadata:
 
         self.tasks, self.task_to_task_index = {}, {}
         self.episodes_stats, self.stats, self.episodes = {}, {}, {}
-        info = create_empty_dataset_info(CODEBASE_VERSION, fps, robot_type, features)
+
+        if self.root.exists():
+            self._load_metadata()
+        else:
+            self.info = create_empty_dataset_info(CODEBASE_VERSION, fps, robot_type, features)
+            fpath = self.root / INFO_PATH
+            fpath.parent.mkdir(exist_ok=True, parents=True)
+            with open(fpath, "w") as f:
+                json.dump(self.info, f, indent=4, ensure_ascii=False)
+
+    @property
+    def features(self) -> dict[str, dict]:
+        """All features contained in the dataset."""
+        return self.info["features"]
+
+    def _load_metadata(self):
+        self.info = self._load_info()
+        self._check_version_compatibility()
+        self.tasks, self.task_to_task_index = self.load_tasks()
+        self.episodes = self._load_episodes()
+        if self._version < packaging.version.parse("v2.1"):
+            self.stats = self._load_stats()
+            self.episodes_stats = dict.fromkeys(self.episodes, self.stats)
+        else:
+            self.episodes_stats = self._load_episodes_stats()
+            self.stats = aggregate_stats(list(self.episodes_stats.values()))
+
+    def _load_episodes_stats(self) -> dict:
+        fpath = self.root / EPISODES_STATS_PATH
+        with jsonlines.open(fpath, "r") as reader:
+            episodes_stats = list(reader)
+        return {
+            item["episode_index"]: self._cast_stats_to_numpy(item["stats"])
+            for item in sorted(episodes_stats, key=lambda x: x["episode_index"])
+        }
+
+    @staticmethod
+    def _cast_stats_to_numpy(stats: dict) -> dict[str, dict[str, np.ndarray]]:
+        stats = {key: np.array(value) for key, value in flatten_dict(stats).items()}
+        return unflatten_dict(stats)
+
+    def _load_stats(self, local_dir: Path) -> dict[str, dict[str, np.ndarray]]:
+        fpath = local_dir / STATS_PATH
+        if not fpath.exists():
+            return None
+        with open(fpath) as f:
+            stats = json.load(f)
+        return self._cast_stats_to_numpy(stats)
+
+    def _load_episodes(self) -> dict:
+        fpath = self.root / EPISODES_PATH
+        with jsonlines.open(fpath, "r") as reader:
+            episodes = list(reader)
+        return {item["episode_index"]: item for item in sorted(episodes, key=lambda x: x["episode_index"])}
+
+    def _check_version_compatibility(
+        self,
+        enforce_breaking_major: bool = True,
+    ) -> None:
+        v_check = (
+            packaging.version.parse(self._version)
+            if not isinstance(self._version, packaging.version.Version)
+            else self._version
+        )
+        v_current = (
+            packaging.version.parse(CODEBASE_VERSION)
+            if not isinstance(CODEBASE_VERSION, packaging.version.Version)
+            else CODEBASE_VERSION
+        )
+        if v_check.major < v_current.major and enforce_breaking_major:
+            raise BackwardCompatibilityError(self.repo_id, v_check)
+        elif v_check.minor < v_current.minor:
+            logging.warning(V21_MESSAGE.format(repo_id=self.repo_id, version=v_check))
+
+    def _load_info(self) -> dict:
         fpath = self.root / INFO_PATH
-        fpath.parent.mkdir(exist_ok=True, parents=True)
-        with open(fpath, "w") as f:
-            json.dump(info, f, indent=4, ensure_ascii=False)
+        with open(fpath) as f:
+            info = json.load(f)
+        for ft in info["features"].values():
+            ft["shape"] = tuple(ft["shape"])
+        return info
+
+    def _load_tasks(self) -> tuple[dict, dict]:
+        fpath = self.root / TASKS_PATH
+        with jsonlines.open(fpath, "r") as reader:
+            tasks = list(reader)
+        tasks = {item["task_index"]: item["task"] for item in sorted(tasks, key=lambda x: x["task_index"])}
+        task_to_task_index = {task: task_index for task_index, task in tasks.items()}
+        return tasks, task_to_task_index
 
     def get_features_from_robot(self, use_videos: bool = True) -> dict:
         action_features = hw_to_dataset_features(self.robot.action_features, "action", use_video=use_videos)
@@ -140,6 +228,10 @@ class LeRobotDatasetMetadata:
 
 
 class LeRobotDataset(torch.utils.data.Dataset):
+    """
+    https://github.com/huggingface/lerobot?tab=readme-ov-file#the-lerobotdataset-format
+    """
+
     def __init__(
         self,
         repo_id: str,
@@ -300,6 +392,10 @@ class LeRobotDataset(torch.utils.data.Dataset):
         if self.delta_timestamps is not None:
             check_delta_timestamps(self.delta_timestamps, self.fps, self.tolerance_s)
             self.delta_indices = get_delta_indices(self.delta_timestamps, self.fps)
+
+    @property
+    def features(self) -> dict[str, dict]:
+        return self.meta.features
 
     def start_image_writer(self, num_processes: int = 0, num_threads: int = 4) -> None:
         if isinstance(self.image_writer, AsyncImageWriter):
