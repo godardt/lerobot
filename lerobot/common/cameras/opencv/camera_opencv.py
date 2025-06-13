@@ -224,15 +224,20 @@ class OpenCVCamera(Camera):
     def _validate_width_and_height(self) -> None:
         """Validates and sets the camera's frame capture width and height."""
 
-        success = self.videocapture.set(cv2.CAP_PROP_FRAME_WIDTH, float(self.capture_width))
-        actual_width = int(round(self.videocapture.get(cv2.CAP_PROP_FRAME_WIDTH)))
-        if not success and self.capture_width != actual_width:
-            raise RuntimeError(f"{self} failed to set capture_width={self.capture_width} ({actual_width=}).")
+        width_success = self.videocapture.set(cv2.CAP_PROP_FRAME_WIDTH, float(self.capture_width))
+        height_success = self.videocapture.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self.capture_height))
 
-        success = self.videocapture.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self.capture_height))
+        actual_width = int(round(self.videocapture.get(cv2.CAP_PROP_FRAME_WIDTH)))
+        if not width_success or self.capture_width != actual_width:
+            raise RuntimeError(
+                f"{self} failed to set capture_width={self.capture_width} ({actual_width=}, {width_success=})."
+            )
+
         actual_height = int(round(self.videocapture.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-        if not success and self.capture_height != actual_height:
-            raise RuntimeError(f"{self} failed to set capture_height={self.capture_height} ({actual_height}).")
+        if not height_success or self.capture_height != actual_height:
+            raise RuntimeError(
+                f"{self} failed to set capture_height={self.capture_height} ({actual_height=}, {height_success=})."
+            )
 
     @staticmethod
     def find_cameras() -> List[Dict[str, Any]]:

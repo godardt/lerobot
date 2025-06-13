@@ -28,6 +28,10 @@ outputs
 # Apple
 .DS_Store
 
+# VS Code
+.vscode
+.devcontainer
+
 # HPC
 nautilus/*.yaml
 *.key
