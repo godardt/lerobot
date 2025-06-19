@@ -52,6 +52,43 @@
                 "--teleop.id=my_awesome_leader_arm",
                 "--display_data=true"
             ]
+        },
+        {
+            "name": "Lerobot: Train",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "lerobot.scripts.train",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PIXI_ENV": "1",
+                "DISPLAY": ""
+            },
+            "args": [
+                "--dataset.repo_id=Ekami/so100",
+                "--policy.type=act",
+                "--output_dir=/tmp/IL_test",
+                "--job_name=il_test",
+                "--policy.device=cuda",
+                "--wandb.enable=true"
+            ]
+        },
+        {
+            "name": "Find cameras",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "lerobot.find_cameras",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PIXI_ENV": "1",
+                "DISPLAY": ""
+            },
+            "args": [
+                "--output-dir=/tmp/cams"
+            ]
         }
     ],
     "inputs": [
