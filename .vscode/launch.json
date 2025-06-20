@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Lerobot: Record dataset",
+            "name": "Record dataset",
             "type": "debugpy",
             "request": "launch",
             "module": "lerobot.record",
@@ -31,7 +31,7 @@
             ]
         },
         {
-            "name": "Lerobot: Teleoperate",
+            "name": "Teleoperate",
             "type": "debugpy",
             "request": "launch",
             "module": "lerobot.teleoperate",
@@ -54,7 +54,7 @@
             ]
         },
         {
-            "name": "Lerobot: Train",
+            "name": "Train",
             "type": "debugpy",
             "request": "launch",
             "module": "lerobot.scripts.train",
