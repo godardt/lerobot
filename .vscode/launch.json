@@ -27,7 +27,7 @@
                 "--dataset.root=/tmp/lerobot_dataset_${input:currentDate}",
                 "--dataset.repo_id=${HF_USER}/record-test",
                 "--dataset.num_episodes=2",
-                "--dataset.single_task=\"Grab the white brick\""
+                "--dataset.single_task=\"Grasp a brick and put it in the bin\""
             ]
         },
         {
@@ -54,7 +54,7 @@
             ]
         },
         {
-            "name": "Train",
+            "name": "Train ACT",
             "type": "debugpy",
             "request": "launch",
             "module": "lerobot.scripts.train",
@@ -72,6 +72,53 @@
                 "--job_name=il_test",
                 "--policy.device=cuda",
                 "--wandb.enable=true"
+            ]
+        },
+        {
+            "name": "Train SmolVLA",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "lerobot.scripts.train",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PIXI_ENV": "1",
+                "DISPLAY": ""
+            },
+            "args": [
+                "--policy.path=lerobot/smolvla_base",
+                "--dataset.repo_id=Ekami/so100",
+                "--batch_size=64",
+                "--steps=20000",
+                "--output_dir=/tmp/smolvla_training",
+                "--job_name=smolvla_training",
+                "--policy.device=cuda",
+                "--wandb.enable=true"
+            ]
+        },
+        {
+            "name": "Eval SmolVLA",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "lerobot.record",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PIXI_ENV": "1",
+                "DISPLAY": ""
+            },
+            "args": [
+                "--robot.type=so101_follower",
+                "--robot.port=/dev/ttyACM0",
+                "--robot.id=my_awesome_follower_arm",
+                "--robot.cameras={\"front\": {\"type\": \"opencv\", \"index_or_path\": 0, \"width\": 1920, \"height\": 1080, \"fps\": 30}}",
+                "--dataset.single_task=\"Grasp a brick and put it in the bin\"",
+                "--dataset.repo_id=Ekami/so100",
+                "--dataset.episode_time_s=50",
+                "--dataset.num_episodes=10",
+                "--policy.path=Ekami/so100_smolvla_finetuned"
             ]
         },
         {
