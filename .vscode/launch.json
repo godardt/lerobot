@@ -66,7 +66,7 @@
                 "DISPLAY": ""
             },
             "args": [
-                "--dataset.repo_id=Ekami/so100",
+                "--dataset.repo_id=Ekami/so100-test",
                 "--policy.type=act",
                 "--output_dir=/tmp/IL_test",
                 "--job_name=il_test",
@@ -92,7 +92,7 @@
                 "--robot.cameras={\"front\": {\"type\": \"opencv\", \"index_or_path\": 0, \"width\": 1920, \"height\": 1080, \"fps\": 30}}",
                 "--robot.id=my_awesome_follower_arm",
                 "--display_data=false",
-                "--dataset.repo_id=Ekami/so100",
+                "--dataset.repo_id=Ekami/so100-test",
                 "--policy.path=Ekami/my_policy"
             ]
         },
@@ -110,8 +110,8 @@
             },
             "args": [
                 "--policy.path=lerobot/smolvla_base",
-                "--dataset.repo_id=Ekami/so100",
-                "--batch_size=64",
+                "--dataset.repo_id=Ekami/so100-test",
+                "--batch_size=32",
                 "--steps=20000",
                 "--output_dir=/tmp/smolvla_training",
                 "--job_name=smolvla_training",
@@ -137,7 +137,7 @@
                 "--robot.id=my_awesome_follower_arm",
                 "--robot.cameras={\"front\": {\"type\": \"opencv\", \"index_or_path\": 0, \"width\": 1920, \"height\": 1080, \"fps\": 30}}",
                 "--dataset.single_task=\"Grasp a brick and put it in the bin\"",
-                "--dataset.repo_id=Ekami/so100",
+                "--dataset.repo_id=Ekami/so100-test",
                 "--dataset.episode_time_s=50",
                 "--dataset.num_episodes=10",
                 "--policy.path=Ekami/so100_smolvla_finetuned"
