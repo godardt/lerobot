@@ -95,7 +95,7 @@
                 "--display_data=false",
                 "--dataset.repo_id=Ekami/eval_so100",
                 "--dataset.single_task=\"Move one white brick inside the box\"",
-                "--policy.path=Ekami/act_pretrained-lerobot_code",
+                "--policy.path=Ekami/act_pretrained",
             ]
         },
         {
