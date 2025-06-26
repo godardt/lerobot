@@ -18,10 +18,11 @@ from typing import Any, Type
 
 import draccus
 
-from lerobot.common.constants import HF_LEROBOT_CALIBRATION, ROBOTS
 from lerobot.common.motors import MotorCalibration
 
 from .config import RobotConfig
+
+root_dir = Path(__file__).parent.parent.parent.parent
 
 
 # TODO(aliberts): action/obs typing such as Generic[ObsType, ActType] similar to gym.Env ?
@@ -45,9 +46,7 @@ class Robot(abc.ABC):
     def __init__(self, config: RobotConfig):
         self.robot_type = self.name
         self.id = config.id
-        self.calibration_dir = (
-            config.calibration_dir if config.calibration_dir else HF_LEROBOT_CALIBRATION / ROBOTS / self.name
-        )
+        self.calibration_dir = root_dir / ".cache" / "calibration" / self.name
         self.calibration_dir.mkdir(parents=True, exist_ok=True)
         self.calibration_fpath = self.calibration_dir / f"{self.id}.json"
         self.calibration: dict[str, MotorCalibration] = {}

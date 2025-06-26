@@ -23,4 +23,4 @@ def _init_rerun(session_name: str = "lerobot_control_loop") -> None:
     os.environ["RERUN_FLUSH_NUM_BYTES"] = batch_size
     rr.init(session_name)
     memory_limit = os.getenv("LEROBOT_RERUN_MEMORY_LIMIT", "10%")
-    rr.spawn(memory_limit=memory_limit)
+    # rr.spawn(memory_limit=memory_limit)

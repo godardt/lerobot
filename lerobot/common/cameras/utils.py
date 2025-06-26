@@ -61,5 +61,7 @@ def get_cv2_backend() -> int:
 
     if platform.system() == "Windows":
         return cv2.CAP_AVFOUNDATION
+    elif platform.system() == "Linux":
+        return cv2.CAP_V4L2
     else:
         return cv2.CAP_ANY

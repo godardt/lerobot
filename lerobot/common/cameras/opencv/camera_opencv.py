@@ -161,8 +161,7 @@ class OpenCVCamera(Camera):
             self.videocapture.release()
             self.videocapture = None
             raise ConnectionError(
-                f"Failed to open {self}."
-                f"Run `python -m lerobot.find_cameras opencv` to find available cameras."
+                f"Failed to open {self}.Run `python -m lerobot.find_cameras opencv` to find available cameras."
             )
 
         self._configure_capture_settings()
@@ -219,7 +218,7 @@ class OpenCVCamera(Camera):
         success = self.videocapture.set(cv2.CAP_PROP_FPS, float(self.fps))
         actual_fps = self.videocapture.get(cv2.CAP_PROP_FPS)
         # Use math.isclose for robust float comparison
-        if not success or not math.isclose(self.fps, actual_fps, rel_tol=1e-3):
+        if not success and not math.isclose(self.fps, actual_fps, rel_tol=1e-3):
             raise RuntimeError(f"{self} failed to set fps={self.fps} ({actual_fps=}).")
 
     def _validate_width_and_height(self) -> None:
