@@ -90,11 +90,12 @@
             "args": [
                 "--robot.type=so100_follower",
                 "--robot.port=/dev/ttyACM0",
-                "--robot.cameras={\"front\": {\"type\": \"opencv\", \"index_or_path\": 0, \"width\": 1920, \"height\": 1080, \"fps\": 30}}",
+                "--robot.cameras={\"front\": {\"type\": \"opencv\", \"index_or_path\": \"/dev/video5\", \"width\": 640, \"height\": 480, \"fps\": 30}, \"wrist\": {\"type\": \"opencv\", \"index_or_path\": \"/dev/video7\", \"width\": 640, \"height\": 480, \"fps\": 30}}",
                 "--robot.id=my_awesome_follower_arm",
                 "--display_data=false",
-                "--dataset.repo_id=Ekami/so100",
-                "--policy.path=Ekami/my_policy"
+                "--dataset.repo_id=Ekami/eval_so100",
+                "--dataset.single_task=\"Move one white brick inside the box\"",
+                "--policy.path=Ekami/act_pretrained-lerobot_code",
             ]
         },
         {
@@ -136,8 +137,11 @@
                 "--robot.type=so101_follower",
                 "--robot.port=/dev/ttyACM0",
                 "--robot.id=my_awesome_follower_arm",
-                "--robot.cameras={\"front\": {\"type\": \"opencv\", \"index_or_path\": 0, \"width\": 1920, \"height\": 1080, \"fps\": 30}}",
-                "--dataset.single_task=\"Grasp a brick and put it in the bin\"",
+                "--robot.cameras={",
+                "  \"front\": {\"type\": \"opencv\", \"index_or_path\": \"/dev/video5\", \"width\": 640, \"height\": 480, \"fps\": 30},",
+                "  \"wrist\": {\"type\": \"opencv\", \"index_or_path\": \"/dev/video7\", \"width\": 640, \"height\": 480, \"fps\": 30, \"rotation\": 180}",
+                "}",
+                "--dataset.single_task=\"Move one white brick inside the box\"",
                 "--dataset.repo_id=Ekami/so100",
                 "--dataset.episode_time_s=50",
                 "--dataset.num_episodes=10",
