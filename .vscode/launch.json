@@ -1,0 +1,189 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Record dataset",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "lerobot.record",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PIXI_ENV": "1",
+                "DISPLAY": "",
+                "HF_USER": "Ekami",
+                "LEROBOT_TMPDIR": "$(cat /tmp/lerobot_tmpdir_path)"
+            },
+            "args": [
+                "--robot.type=so100_follower",
+                "--robot.port=/dev/ttyACM0",
+                "--robot.id=main_follower",
+                "--robot.cameras={\"wrist\": {\"type\": \"opencv\", \"index_or_path\": \"/dev/video5\", \"width\": 640, \"height\": 480, \"fps\": 30}}",
+                "--teleop.type=so100_leader",
+                "--teleop.port=/dev/ttyACM1",
+                "--teleop.id=main_leader",
+                "--display_data=true",
+                "--dataset.root=/tmp/lerobot_dataset_${input:currentDate}",
+                "--dataset.repo_id=${HF_USER}/record-test",
+                "--dataset.num_episodes=2",
+                "--dataset.single_task=\"Grasp a brick and put it in the bin\""
+            ]
+        },
+        {
+            "name": "Teleoperate",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "lerobot.teleoperate",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PIXI_ENV": "1",
+                "DISPLAY": ""
+            },
+            "args": [
+                "--robot.type=so100_follower",
+                "--robot.port=/dev/ttyACM0",
+                "--robot.id=my_awesome_follower_arm",
+                "--teleop.type=so100_leader",
+                "--teleop.port=/dev/ttyACM1",
+                "--teleop.id=my_awesome_leader_arm",
+                "--display_data=true"
+            ]
+        },
+        {
+            "name": "Train ACT",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "lerobot.scripts.train",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PIXI_ENV": "1",
+                "DISPLAY": ""
+            },
+            "args": [
+                "--dataset.repo_id=Ekami/so100",
+                "--policy.type=act",
+                "--output_dir=/tmp/IL_test",
+                "--job_name=il_test",
+                "--policy.device=cuda",
+                "--wandb.enable=true",
+                "--save_freq=20000"
+            ]
+        },
+        {
+            "name": "Eval ACT",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "lerobot.record",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PIXI_ENV": "1",
+                "DISPLAY": ""
+            },
+            "args": [
+                "--robot.type=so100_follower",
+                "--robot.port=/dev/ttyACM0",
+                "--robot.cameras={\"front\": {\"type\": \"opencv\", \"index_or_path\": \"/dev/video5\", \"width\": 640, \"height\": 480, \"fps\": 30}, \"wrist\": {\"type\": \"opencv\", \"index_or_path\": \"/dev/video7\", \"width\": 640, \"height\": 480, \"fps\": 30}}",
+                "--robot.id=my_awesome_follower_arm",
+                "--display_data=false",
+                "--dataset.repo_id=Ekami/eval_so100",
+                "--dataset.single_task=\"Move one white brick inside the box\"",
+                "--policy.path=Ekami/act_pretrained",
+            ]
+        },
+        {
+            "name": "Train SmolVLA",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "lerobot.scripts.train",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PIXI_ENV": "1",
+                "DISPLAY": ""
+            },
+            "args": [
+                "--policy.path=lerobot/smolvla_base",
+                "--dataset.repo_id=Ekami/so100",
+                "--batch_size=32",
+                "--steps=20000",
+                "--output_dir=/tmp/smolvla_training",
+                "--job_name=smolvla_training",
+                "--policy.device=cuda",
+                "--wandb.enable=true"
+            ]
+        },
+        {
+            "name": "Eval SmolVLA",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "lerobot.record",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PIXI_ENV": "1",
+                "DISPLAY": ""
+            },
+            "args": [
+                "--robot.type=so101_follower",
+                "--robot.port=/dev/ttyACM0",
+                "--robot.id=my_awesome_follower_arm",
+                "--robot.cameras={",
+                "  \"front\": {\"type\": \"opencv\", \"index_or_path\": \"/dev/video5\", \"width\": 640, \"height\": 480, \"fps\": 30},",
+                "  \"wrist\": {\"type\": \"opencv\", \"index_or_path\": \"/dev/video7\", \"width\": 640, \"height\": 480, \"fps\": 30, \"rotation\": 180}",
+                "}",
+                "--dataset.single_task=\"Move one white brick inside the box\"",
+                "--dataset.repo_id=Ekami/so100",
+                "--dataset.episode_time_s=50",
+                "--dataset.num_episodes=10",
+                "--policy.path=Ekami/so100_smolvla_finetuned"
+            ]
+        },
+        {
+            "name": "Find cameras",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "lerobot.find_cameras",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PIXI_ENV": "1",
+                "DISPLAY": ""
+            },
+            "args": [
+                "--output-dir=/tmp/cams"
+            ]
+        }
+    ],
+    "inputs": [
+        {
+            "id": "currentDate",
+            "type": "command",
+            "command": "extension.commandvariable.dateTime",
+            "args": {
+                "locale": "en-US",
+                "options": {
+                    "weekday": "long",
+                    "year": "numeric",
+                    "month": "2-digit",
+                    "day": "2-digit",
+                    "hour12": false,
+                    "hour": "2-digit",
+                    "minute": "2-digit",
+                    "second": "2-digit"
+                },
+                "template": "${weekday}__${year}${month}${day}T${hour}${minute}${second}"
+            }
+        }
+    ]
+}
+

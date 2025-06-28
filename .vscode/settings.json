@@ -1,0 +1,25 @@
+{
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit",
+      "source.fixAll.ruff": "explicit"
+    },
+    "editor.insertSpaces": true,
+    "editor.tabSize": 4
+  },
+  "python.defaultInterpreterPath": "${workspaceFolder}/.pixi/envs/default/bin/python",
+  "ruff.lineLength": 120,
+  "python.testing.pytestArgs": [
+    "tuatini"
+  ],
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true,
+  "command-variable.commands": {
+    "lerobot.createTmpFolder": {
+      "command": "mktemp -d",
+      "type": "shell"
+    }
+  }
+}

@@ -29,7 +29,6 @@ outputs
 .DS_Store
 
 # VS Code
-.vscode
 .devcontainer
 
 # HPC
