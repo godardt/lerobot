@@ -45,10 +45,10 @@
             "args": [
                 "--robot.type=so100_follower",
                 "--robot.port=/dev/ttyACM0",
-                "--robot.id=my_awesome_follower_arm",
+                "--robot.id=main_follower",
                 "--teleop.type=so100_leader",
                 "--teleop.port=/dev/ttyACM1",
-                "--teleop.id=my_awesome_leader_arm",
+                "--teleop.id=main_leader",
                 "--display_data=true"
             ]
         },
@@ -90,7 +90,7 @@
                 "--robot.type=so100_follower",
                 "--robot.port=/dev/ttyACM0",
                 "--robot.cameras={\"front\": {\"type\": \"opencv\", \"index_or_path\": \"/dev/video7\", \"width\": 640, \"height\": 480, \"fps\": 30}, \"wrist\": {\"type\": \"opencv\", \"index_or_path\": \"/dev/video5\", \"width\": 640, \"height\": 480, \"fps\": 30}}",
-                "--robot.id=my_awesome_follower_arm",
+                "--robot.id=main_follower",
                 "--display_data=false",
                 "--dataset.repo_id=Ekami/eval_so100",
                 "--dataset.single_task=\"Move the black tape into the box\"",
@@ -112,7 +112,7 @@
             "args": [
                 "--robot.type=so101_follower",
                 "--robot.port=/dev/ttyACM0",
-                "--robot.id=my_awesome_follower_arm",
+                "--robot.id=main_follower",
                 "--robot.cameras={\"front\": {\"type\": \"opencv\", \"index_or_path\": \"/dev/video7\", \"width\": 640, \"height\": 480, \"fps\": 30}, \"wrist\": {\"type\": \"opencv\", \"index_or_path\": \"/dev/video5\", \"width\": 640, \"height\": 480, \"fps\": 30}}",
                 "--dataset.repo_id=Ekami/eval_so100_smolvla",
                 "--dataset.episode_time_s=50",
